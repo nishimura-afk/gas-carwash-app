@@ -33,7 +33,7 @@ function getMonthlyData() {
   }).filter(o => o['店舗コード']);
 }
 
-function calculateExchangeStatus(masterItem, currentAccumulatedCount) {
+function calculateExchangeStatus(masterItem, currentAccumulatedCount, avgMonthlyCount = 0) {
   const config = getConfig();
   const criteria = config.EXCHANGE_CRITERIA;
   const status = config.STATUS;
@@ -70,9 +70,22 @@ function calculateExchangeStatus(masterItem, currentAccumulatedCount) {
   } else { brushStatus = '対象外'; }
   if (currentAccumulatedCount < 1000 && masterItem['ブラシ種類'] === '布') brushStatus = status.NORMAL;
 
-  // --- 本体判定 ---
+  // --- 本体判定（新ロジック） ---
   let bodyStatus = status.NORMAL;
-  if (countSinceBodyExchange >= criteria.MACHINE_BODY.THRESHOLD) bodyStatus = status.PREPARE;
+  const currentMonth = today.getMonth() + 1; // 1-12
+  
+  if (currentMonth === 1) {
+    // 1月の場合：15ヶ月後の予測で判定
+    const forecastCount = countSinceBodyExchange + (avgMonthlyCount * criteria.MACHINE_BODY.FORECAST_MONTHS);
+    if (forecastCount >= criteria.MACHINE_BODY.THRESHOLD) {
+      bodyStatus = status.PREPARE;
+    }
+  } else {
+    // 2月以降：累計台数のみで判定
+    if (countSinceBodyExchange >= criteria.MACHINE_BODY.THRESHOLD) {
+      bodyStatus = status.PREPARE;
+    }
+  }
 
   return { railStatus, brushStatus, bodyStatus, railMonths };
 }
@@ -138,7 +151,7 @@ function refreshStatusSummary() {
       '布ブラシ最終交換日': toDate(item['布ブラシ最終交換日']) 
     };
 
-    const res = calculateExchangeStatus(validItem, count);
+    const res = calculateExchangeStatus(validItem, count, avgCount);
 
     let isSubsidy = config.SUBSIDY_TARGET_SHOPS.some(s => item['店舗名'].includes(s));
     const memo = item['次回付帯作業メモ'] || "";
