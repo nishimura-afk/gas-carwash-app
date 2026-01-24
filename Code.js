@@ -79,21 +79,29 @@ function getDashboardData() {
     }
   });
   
+  // 店舗単位でグループ化（本体交換の場合は店舗ごとに1件のみ表示）
+  const shopGroups = {};
+  
   data.forEach(m => {
     const shopCode = m['店舗コード'];
     const keyPrefix = `${m['店舗コード']}_${m['区別']}_`;
     const isBodyExchangeInProgress = ignoreActions.includes(keyPrefix + '本体');
 
     if (shopsWithBodyExchange.has(shopCode)) {
-      // 店舗内の1台でも本体が「交換準備」なら、その店舗の全機を本体交換対象として表示
-      const maskedItem = { ...m };
-      maskedItem['レールステータス'] = config.STATUS.NORMAL; 
-      maskedItem['ブラシステータス'] = '対象外';
-      // 本体ステータスを「交換準備」に強制設定（店舗単位で全機交換のため）
-      maskedItem['本体ステータス'] = config.STATUS.PREPARE;
-      const subsidyCheck = checkSubsidyAlert(m['店舗名'], m['本体設置日']);
-      if (subsidyCheck) maskedItem['subsidyAlert'] = subsidyCheck.message;
-      notices.push(maskedItem);
+      // 店舗内の1台でも本体が「交換準備」なら、その店舗を本体交換対象として1件のみ表示
+      if (!shopGroups[shopCode]) {
+        // 店舗内の最初の機械のデータを使用（補助金チェック用）
+        const firstMachine = data.find(d => d['店舗コード'] === shopCode);
+        const maskedItem = { ...firstMachine };
+        maskedItem['レールステータス'] = config.STATUS.NORMAL; 
+        maskedItem['ブラシステータス'] = '対象外';
+        maskedItem['本体ステータス'] = config.STATUS.PREPARE;
+        maskedItem['区別'] = '全機'; // 全機を表す
+        const subsidyCheck = checkSubsidyAlert(firstMachine['店舗名'], firstMachine['本体設置日']);
+        if (subsidyCheck) maskedItem['subsidyAlert'] = subsidyCheck.message;
+        shopGroups[shopCode] = maskedItem;
+      }
+      // 本体交換対象店舗の機械はnormalにカウントしない
     } else {
       let isRailAlert = m['レールステータス'] === config.STATUS.NOTICE && !ignoreActions.includes(keyPrefix + 'レール車輪');
       if (isBodyExchangeInProgress) isRailAlert = false;
@@ -106,6 +114,11 @@ function getDashboardData() {
         normal++; 
       }
     }
+  });
+  
+  // 店舗単位でグループ化された本体交換対象を追加
+  Object.values(shopGroups).forEach(item => {
+    notices.push(item);
   });
   const projects = getOngoingProjects();
   return { noticeCount: notices.length, normalCount: normal, noticeList: notices, projects: projects };
