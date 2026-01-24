@@ -491,14 +491,23 @@ function confirmPartsSelection() {
     return;
   }
   
-  console.log('送信データ:', formattedData);
-  console.log('アクションタイプ:', currentActionType);
+  // ★重要: currentActionTypeを保存（closePartsSelectionModalでnullになる前に）
+  const actionType = currentActionType;
   
+  console.log('送信データ:', formattedData);
+  console.log('アクションタイプ:', actionType);
+  
+  if (!actionType || (actionType !== 'register' && actionType !== 'draft')) {
+    alert('アクションタイプが正しく設定されていません。');
+    return;
+  }
+  
+  // モーダルを閉じる（currentActionTypeはnullになるが、actionTypeに保存済み）
   closePartsSelectionModal();
   showLoading(true);
   
   try {
-    if (currentActionType === 'register') {
+    if (actionType === 'register') {
       // 案件登録のみ
       google.script.run
         .withSuccessHandler((result) => {
@@ -517,7 +526,7 @@ function confirmPartsSelection() {
           alert('登録失敗: ' + errorMsg + '\n\n詳細はブラウザのコンソールを確認してください。');
         })
         .registerSelectedProjects(formattedData);
-    } else if (currentActionType === 'draft') {
+    } else if (actionType === 'draft') {
       // メール作成 + 案件登録
       google.script.run
         .withSuccessHandler((result) => {
