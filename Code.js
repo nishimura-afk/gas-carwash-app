@@ -72,10 +72,31 @@ function getDashboardData() {
   let normal = 0;
   
   const shopsWithBodyExchange = new Set();
+  // 店舗単位で本体交換が案件化されているかチェック
+  const shopsWithBodyExchangeRegistered = new Set();
+  ignoreActions.forEach(action => {
+    if (action.endsWith('_本体')) {
+      const parts = action.split('_');
+      if (parts.length >= 2) {
+        const shopCode = parts[0];
+        const machineId = parts[1];
+        // 「全機」として登録されている場合、その店舗を除外
+        if (machineId === '全機') {
+          shopsWithBodyExchangeRegistered.add(shopCode);
+        }
+      }
+    }
+  });
+  
   data.forEach(m => {
-    const key = `${m['店舗コード']}_${m['区別']}_本体`;
+    const shopCode = m['店舗コード'];
+    // 既に案件化されている店舗は除外
+    if (shopsWithBodyExchangeRegistered.has(shopCode)) {
+      return;
+    }
+    const key = `${shopCode}_${m['区別']}_本体`;
     if (m['本体ステータス'] === config.STATUS.PREPARE && !ignoreActions.includes(key)) {
-      shopsWithBodyExchange.add(m['店舗コード']);
+      shopsWithBodyExchange.add(shopCode);
     }
   });
   
@@ -87,6 +108,12 @@ function getDashboardData() {
     const keyPrefix = `${m['店舗コード']}_${m['区別']}_`;
     const isBodyExchangeInProgress = ignoreActions.includes(keyPrefix + '本体');
 
+    // 既に案件化されている店舗は除外
+    if (shopsWithBodyExchangeRegistered.has(shopCode)) {
+      normal++;
+      return;
+    }
+    
     if (shopsWithBodyExchange.has(shopCode)) {
       // 店舗内の1台でも本体が「交換準備」なら、その店舗を本体交換対象として1件のみ表示
       if (!shopGroups[shopCode]) {
