@@ -45,16 +45,6 @@
     </div>
   </div>
 
-  <!-- 2. 新規対応候補 (Alerts) -->
-  <div class="bg-yellow-50 rounded-lg shadow border border-yellow-200 p-4 mt-8">
-    <h3 class="text-lg font-bold text-yellow-800 mb-3"><i class="fas fa-exclamation-circle mr-2"></i>新規対応候補（未着手の警告）</h3>
-    <p class="text-sm text-yellow-700 mb-4">ステータス異常が出ていますが、まだ案件化されていない機械です。「案件リストに追加（見積依頼）」するか、直接「日程登録」してください。</p>
-    
-    <div id="new-targets-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <div class="text-sm text-gray-500">読み込み中...</div>
-    </div>
-  </div>
-
 </div>
 
 <!-- (モーダル群は変更なし) -->
@@ -102,7 +92,6 @@
 function progressInit(forceRefresh = false) {
   if (!forceRefresh && window.g_cache.progress) {
     renderStatusBars(window.g_cache.progress);
-    if (window.g_cache.newTargets) renderNewTargets(window.g_cache.newTargets);
     return;
   }
 
@@ -111,12 +100,7 @@ function progressInit(forceRefresh = false) {
     .withSuccessHandler(projects => {
       window.g_cache.progress = projects; // キャッシュ保存
       renderStatusBars(projects);
-      
-      google.script.run.withSuccessHandler(targets => {
-        window.g_cache.newTargets = targets; // 新規候補もキャッシュ
-        renderNewTargets(targets);
-        showLoading(false);
-      }).getExchangeTargetsForUI();
+      showLoading(false);
     })
     .withFailureHandler(e => { showLoading(false); alert('読み込みエラー: ' + e); })
     .getAllActiveProjects();
@@ -169,30 +153,6 @@ function renderStatusBars(projects) {
   });
 }
 
-function renderNewTargets(list) {
-  const container = document.getElementById('new-targets-container');
-  container.innerHTML = '';
-  if (list.length === 0) {
-    container.innerHTML = '<div class="col-span-3 p-4 text-center text-gray-500">新規の対応候補はありません</div>';
-    return;
-  }
-  list.forEach(item => {
-    let subsidyBadge = '';
-    if (item.subsidyAlert) {
-      subsidyBadge = `<div class="text-xs text-red-600 bg-red-50 border border-red-200 p-1 rounded mt-1"><i class="fas fa-yen-sign mr-1"></i>補助金注意</div>`;
-    }
-    const card = document.createElement('div');
-    card.className = "bg-white p-3 rounded shadow border hover:shadow-md transition";
-    card.innerHTML = `
-      <div class="flex justify-between items-start">
-        <div><div class="font-bold text-gray-800">${item.shopName}</div><div class="text-xs text-gray-500">${item.exchangeTargets}</div>${subsidyBadge}</div>
-        <div class="flex flex-col gap-1"><button onclick="directSchedule('${item.shopCode}', '${item.machineIdentifier}', '${item.exchangeTargets}')" class="bg-yellow-500 text-white px-2 py-1 rounded text-xs hover:bg-yellow-600 whitespace-nowrap"><i class="fas fa-calendar-plus mr-1"></i>日程登録</button></div>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-}
-
 // --- アクション処理 ---
 function updateStatus(id, newStatus) {
   if (!confirm(`ステータスを「${newStatus}」に進めますか？`)) return;
@@ -232,18 +192,8 @@ function openScheduleModal(id, shopName, part) {
   document.getElementById('schedule-modal').classList.remove('hidden');
 }
 
-let directRegisterData = null;
-function directSchedule(shopCode, machineId, part) {
-  directRegisterData = { shopCode, machineId, part };
-  document.getElementById('sched-id').value = 'DIRECT';
-  document.getElementById('sched-date').value = '';
-  document.getElementById('sched-modal-desc').innerText = `新規登録: ${part} の交換日程を登録します。`;
-  document.getElementById('schedule-modal').classList.remove('hidden');
-}
-
 function closeScheduleModal() {
   document.getElementById('schedule-modal').classList.add('hidden');
-  directRegisterData = null;
 }
 
 function submitSchedule() {
@@ -255,19 +205,11 @@ function submitSchedule() {
   closeScheduleModal();
   const notes = "統合管理画面からの登録";
 
-  if (id === 'DIRECT' && directRegisterData) {
-    google.script.run.withSuccessHandler(() => {
-      alert('日程を登録しました');
-      clearCache('progress');
-      progressInit(true);
-    }).withFailureHandler(e => { showLoading(false); alert('登録失敗: ' + e); }).createScheduleAndRecord(directRegisterData.shopCode, directRegisterData.machineId, directRegisterData.part, date, notes);
-  } else {
-    google.script.run.withSuccessHandler(() => {
-      alert('日程を確定しました');
-      clearCache('progress');
-      progressInit(true);
-    }).withFailureHandler(e => { showLoading(false); alert('更新失敗: ' + e); }).createScheduleAndRecord("", "", "", date, notes, id);
-  }
+  google.script.run.withSuccessHandler(() => {
+    alert('日程を確定しました');
+    clearCache('progress');
+    progressInit(true);
+  }).withFailureHandler(e => { showLoading(false); alert('更新失敗: ' + e); }).createScheduleAndRecord("", "", "", date, notes, id);
 }
 
 function openProgCompModal(id, scheduledDate, partName) {
