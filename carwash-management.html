@@ -510,15 +510,24 @@ function confirmPartsSelection() {
     if (actionType === 'register') {
       // 案件登録のみ
       google.script.run
-        .withSuccessHandler((result) => {
-          showLoading(false);
-          if (result && result.registeredCount !== undefined) {
-            alert(`${result.registeredCount}件の案件を登録しました。`);
-          } else {
-            alert('案件を登録しました。');
-          }
-          managementInit();
-        })
+      .withSuccessHandler((result) => {
+        showLoading(false);
+        if (result && result.registeredCount !== undefined) {
+          alert(`${result.registeredCount}件の案件を登録しました。`);
+        } else {
+          alert('案件を登録しました。');
+        }
+        // キャッシュをクリアして最新データを取得
+        if (window.clearCache) {
+          window.clearCache('progress');
+          window.clearCache('dashboard');
+        }
+        managementInit();
+        // 案件管理タブがアクティブな場合はリフレッシュ
+        if (window.progressInit) {
+          setTimeout(() => window.progressInit(true), 500);
+        }
+      })
         .withFailureHandler(e => {
           showLoading(false);
           console.error('登録エラー:', e);
@@ -529,15 +538,24 @@ function confirmPartsSelection() {
     } else if (actionType === 'draft') {
       // メール作成 + 案件登録
       google.script.run
-        .withSuccessHandler((result) => {
-          showLoading(false);
-          if (result && result.registeredCount !== undefined && result.draftCount !== undefined) {
-            alert(`${result.registeredCount}件の案件を登録し、${result.draftCount}件のメール下書きを作成しました。`);
-          } else {
-            alert('案件を登録し、メール下書きを作成しました。');
-          }
-          managementInit();
-        })
+      .withSuccessHandler((result) => {
+        showLoading(false);
+        if (result && result.registeredCount !== undefined && result.draftCount !== undefined) {
+          alert(`${result.registeredCount}件の案件を登録し、${result.draftCount}件のメール下書きを作成しました。`);
+        } else {
+          alert('案件を登録し、メール下書きを作成しました。');
+        }
+        // キャッシュをクリアして最新データを取得
+        if (window.clearCache) {
+          window.clearCache('progress');
+          window.clearCache('dashboard');
+        }
+        managementInit();
+        // 案件管理タブがアクティブな場合はリフレッシュ
+        if (window.progressInit) {
+          setTimeout(() => window.progressInit(true), 500);
+        }
+      })
         .withFailureHandler(e => {
           showLoading(false);
           console.error('処理エラー:', e);
