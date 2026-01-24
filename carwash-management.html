@@ -10,11 +10,23 @@
     </div>
   </div>
   
+  <!-- 選択操作ボタン -->
+  <div class="flex gap-3 mb-2">
+    <button onclick="openPartsSelectionModal('register')" id="btn-register" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold shadow disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+      <i class="fas fa-check-circle mr-2"></i>選択した機械を案件リストに登録
+    </button>
+    <button onclick="openPartsSelectionModal('draft')" id="btn-draft" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded font-bold shadow disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+      <i class="fas fa-envelope mr-2"></i>選択した機械のメール下書き作成
+    </button>
+  </div>
+  
   <div class="overflow-x-auto border rounded-lg shadow bg-white">
     <table class="w-full text-sm text-left whitespace-nowrap">
       <thead class="bg-gray-100 text-gray-700">
         <tr>
-          <th class="p-3 border-b">店舗CD</th>
+          <th class="p-3 border-b text-center">
+            <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this.checked)" class="cursor-pointer">
+          </th>
           <th class="p-3 border-b">店舗名</th>
           <th class="p-3 border-b">区別</th>
           <th class="p-3 border-b text-right">累計台数</th>
@@ -51,6 +63,29 @@
   </div>
 </div>
 
+<!-- 部品選択モーダル -->
+<div id="parts-selection-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden flex items-center justify-center z-50">
+  <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <h3 class="text-lg font-bold mb-4 text-gray-800">
+      <i class="fas fa-cog mr-2"></i>対象部品の選択
+    </h3>
+    <p class="text-xs text-gray-500 mb-4">各機械について、対象となる部品を選択してください。</p>
+    
+    <div id="parts-selection-warning" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-3 mb-4">
+      <p class="text-yellow-800 text-sm font-bold"><i class="fas fa-exclamation-triangle mr-2"></i>補助金対象店舗が含まれています。返金義務が発生する可能性があります。</p>
+    </div>
+    
+    <div id="parts-selection-list" class="space-y-3 mb-4">
+      <!-- 動的に生成 -->
+    </div>
+    
+    <div class="flex justify-end space-x-2 mt-6">
+      <button onclick="closePartsSelectionModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">キャンセル</button>
+      <button onclick="confirmPartsSelection()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold shadow">確定</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function managementInit() {
   showLoading(true);
@@ -59,6 +94,10 @@ function managementInit() {
     .withFailureHandler(e => { showLoading(false); alert('取得失敗: ' + e); })
     .getCarWashList();
 }
+
+// グローバル変数：選択された機械のデータを保持
+let selectedMachinesData = [];
+let currentActionType = null; // 'register' or 'draft'
 
 function renderManagement(list) {
   showLoading(false);
@@ -78,9 +117,12 @@ function renderManagement(list) {
 
   const subsidyTargetsFallback = ['徳島石井', '小松島', '紀三井寺', '坂出'];
 
-  list.forEach(row => {
+  list.forEach((row, index) => {
     const tr = document.createElement('tr');
     tr.className = "hover:bg-gray-50 transition";
+    tr.dataset.shopCode = row['店舗コード'];
+    tr.dataset.machineId = row['区別'];
+    tr.dataset.index = index;
     
     // 表示用変数を用意
     let railStatusText = row['レールステータス'];
@@ -123,9 +165,19 @@ function renderManagement(list) {
     const memoIconClass = memoContent ? "text-blue-600" : "text-gray-300 hover:text-gray-500";
     const memoTitle = memoContent ? "メモあり: " + memoContent : "メモを追加";
 
+    // データ属性にステータス情報を保存
+    tr.dataset.railStatus = row['レールステータス'];
+    tr.dataset.brushStatus = row['ブラシステータス'];
+    tr.dataset.bodyStatus = bodyStatus;
+    tr.dataset.shopName = row['店舗名'];
+    tr.dataset.isSubsidy = isSubsidyTarget;
+    tr.dataset.nextWorkMemo = memoContent;
+
     tr.innerHTML = `
-      <td class="p-3 font-mono text-gray-500">${row['店舗コード']}</td>
-      <td class="p-3 font-bold text-gray-700 flex items-center">${row['店舗名']}${subsidyBadge}</td>
+      <td class="p-3 text-center">
+        <input type="checkbox" class="machine-checkbox cursor-pointer" onchange="updateButtonStates()" data-shop-code="${row['店舗コード']}" data-machine-id="${row['区別']}">
+      </td>
+      <td class="p-3 font-bold text-gray-700 flex items-center">${row['店舗名']}${subsidyBadge} <span class="ml-2 text-xs text-gray-400 font-mono">${row['店舗コード']}</span></td>
       <td class="p-3 text-center">${row['区別']}</td>
       <td class="p-3 text-right font-mono font-bold">${Number(row['累計台数']).toLocaleString()}</td>
       <td class="p-3 text-right font-mono text-blue-700 bg-blue-50">${Number(row['月平均台数'] || 0).toLocaleString()}</td>
@@ -141,6 +193,8 @@ function renderManagement(list) {
     `;
     tbody.appendChild(tr);
   });
+  
+  updateButtonStates();
 }
 
 function openMemoModal(shopCode, machineId, currentMemo) {
@@ -173,5 +227,217 @@ function saveMemo() {
       alert('保存失敗: ' + e);
     })
     .saveNextWorkMemo(shopCode, machineId, memo);
+}
+
+// チェックボックス関連の関数
+function toggleSelectAll(checked) {
+  const checkboxes = document.querySelectorAll('.machine-checkbox');
+  checkboxes.forEach(cb => cb.checked = checked);
+  updateButtonStates();
+}
+
+function updateButtonStates() {
+  const checkedBoxes = document.querySelectorAll('.machine-checkbox:checked');
+  const hasSelection = checkedBoxes.length > 0;
+  
+  document.getElementById('btn-register').disabled = !hasSelection;
+  document.getElementById('btn-draft').disabled = !hasSelection;
+}
+
+function openPartsSelectionModal(actionType) {
+  currentActionType = actionType;
+  const checkedBoxes = document.querySelectorAll('.machine-checkbox:checked');
+  
+  if (checkedBoxes.length === 0) {
+    alert('機械を選択してください。');
+    return;
+  }
+  
+  selectedMachinesData = [];
+  let hasSubsidyTarget = false;
+  
+  checkedBoxes.forEach(cb => {
+    const tr = cb.closest('tr');
+    const shopCode = tr.dataset.shopCode;
+    const shopName = tr.dataset.shopName;
+    const machineId = tr.dataset.machineId;
+    const railStatus = tr.dataset.railStatus;
+    const brushStatus = tr.dataset.brushStatus;
+    const bodyStatus = tr.dataset.bodyStatus;
+    const isSubsidy = tr.dataset.isSubsidy === 'true';
+    const nextWorkMemo = tr.dataset.nextWorkMemo || '';
+    
+    if (isSubsidy) hasSubsidyTarget = true;
+    
+    // デフォルトで選択する部品を決定
+    const defaultParts = [];
+    if (bodyStatus === '交換準備') {
+      defaultParts.push('本体');
+    } else {
+      if (railStatus === '通知') {
+        defaultParts.push('レール車輪');
+      }
+      if (brushStatus && brushStatus.includes('通知')) {
+        defaultParts.push('布ブラシ');
+      }
+    }
+    
+    selectedMachinesData.push({
+      shopCode: shopCode,
+      shopName: shopName,
+      machineId: machineId,
+      railStatus: railStatus,
+      brushStatus: brushStatus,
+      bodyStatus: bodyStatus,
+      isSubsidy: isSubsidy,
+      nextWorkMemo: nextWorkMemo,
+      selectedParts: [...defaultParts] // デフォルト選択をコピー
+    });
+  });
+  
+  // 警告メッセージの表示
+  const warningDiv = document.getElementById('parts-selection-warning');
+  if (hasSubsidyTarget) {
+    warningDiv.classList.remove('hidden');
+  } else {
+    warningDiv.classList.add('hidden');
+  }
+  
+  // モーダル内のリストを生成
+  renderPartsSelectionList();
+  
+  // モーダルを表示
+  document.getElementById('parts-selection-modal').classList.remove('hidden');
+}
+
+function renderPartsSelectionList() {
+  const container = document.getElementById('parts-selection-list');
+  container.innerHTML = '';
+  
+  selectedMachinesData.forEach((machine, index) => {
+    const div = document.createElement('div');
+    div.className = 'border rounded p-4 bg-gray-50';
+    
+    const subsidyBadge = machine.isSubsidy 
+      ? '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">補助金</span>'
+      : '';
+    
+    // 選択可能な部品を決定
+    const availableParts = [];
+    if (machine.bodyStatus === '交換準備') {
+      availableParts.push({ id: '本体', label: '本体' });
+    } else {
+      // 本体が交換準備でない場合、レールとブラシを選択可能
+      // ただし、ステータスに関係なく全て選択可能にする
+      availableParts.push({ id: 'レール車輪', label: 'レール車輪' });
+      availableParts.push({ id: '布ブラシ', label: '布ブラシ' });
+      availableParts.push({ id: '本体', label: '本体' });
+    }
+    
+    const checkboxes = availableParts.map(part => {
+      const isChecked = machine.selectedParts.includes(part.id);
+      return `
+        <label class="flex items-center cursor-pointer">
+          <input type="checkbox" 
+                 class="part-checkbox mr-2" 
+                 data-machine-index="${index}"
+                 data-part-id="${part.id}"
+                 ${isChecked ? 'checked' : ''}
+                 onchange="updateMachineParts(${index}, '${part.id}', this.checked)">
+          <span>${part.label}</span>
+        </label>
+      `;
+    }).join('');
+    
+    div.innerHTML = `
+      <div class="font-bold text-gray-800 mb-2">
+        ${machine.shopName}${subsidyBadge} - ${machine.machineId} (${machine.shopCode})
+      </div>
+      <div class="flex flex-wrap gap-4">
+        ${checkboxes}
+      </div>
+    `;
+    
+    container.appendChild(div);
+  });
+}
+
+function updateMachineParts(machineIndex, partId, isChecked) {
+  const machine = selectedMachinesData[machineIndex];
+  if (isChecked) {
+    if (!machine.selectedParts.includes(partId)) {
+      machine.selectedParts.push(partId);
+    }
+  } else {
+    const index = machine.selectedParts.indexOf(partId);
+    if (index > -1) {
+      machine.selectedParts.splice(index, 1);
+    }
+  }
+}
+
+function closePartsSelectionModal() {
+  document.getElementById('parts-selection-modal').classList.add('hidden');
+  selectedMachinesData = [];
+  currentActionType = null;
+}
+
+function confirmPartsSelection() {
+  // 選択された部品があるかチェック
+  const hasSelection = selectedMachinesData.some(m => m.selectedParts.length > 0);
+  if (!hasSelection) {
+    alert('少なくとも1つの部品を選択してください。');
+    return;
+  }
+  
+  // 選択データを整形
+  const formattedData = [];
+  selectedMachinesData.forEach(machine => {
+    if (machine.selectedParts.length > 0) {
+      formattedData.push({
+        shopCode: machine.shopCode,
+        shopName: machine.shopName,
+        machineId: machine.machineId,
+        parts: machine.selectedParts,
+        nextWorkMemo: machine.nextWorkMemo
+      });
+    }
+  });
+  
+  if (formattedData.length === 0) {
+    alert('選択された部品がありません。');
+    return;
+  }
+  
+  closePartsSelectionModal();
+  showLoading(true);
+  
+  if (currentActionType === 'register') {
+    // 案件登録のみ
+    google.script.run
+      .withSuccessHandler((result) => {
+        showLoading(false);
+        alert(`${result.registeredCount}件の案件を登録しました。`);
+        managementInit();
+      })
+      .withFailureHandler(e => {
+        showLoading(false);
+        alert('登録失敗: ' + e);
+      })
+      .registerSelectedProjects(formattedData);
+  } else if (currentActionType === 'draft') {
+    // メール作成 + 案件登録
+    google.script.run
+      .withSuccessHandler((result) => {
+        showLoading(false);
+        alert(`${result.registeredCount}件の案件を登録し、${result.draftCount}件のメール下書きを作成しました。`);
+        managementInit();
+      })
+      .withFailureHandler(e => {
+        showLoading(false);
+        alert('処理失敗: ' + e);
+      })
+      .createDraftsForSelected(formattedData);
+  }
 }
 </script>

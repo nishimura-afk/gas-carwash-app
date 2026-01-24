@@ -254,6 +254,181 @@ function registerProject(s, m, t, status) {
   return { success: true, id: uniqueId };
 }
 
+/**
+ * 選択された機械を案件リストに登録（見積依頼中）
+ * @param {Array} selectedData - [{ shopCode, shopName, machineId, parts: ['レール車輪', '布ブラシ'], nextWorkMemo }]
+ * @returns {Object} { registeredCount: number }
+ */
+function registerSelectedProjects(selectedData) {
+  const config = getConfig();
+  const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
+  const scheduleData = sheet.getDataRange().getValues();
+  
+  // 既存のアクティブな案件を取得（重複登録防止）
+  const activeProjects = new Set();
+  if (scheduleData.length > 1) {
+    scheduleData.slice(1).forEach(row => {
+      if (row[5] !== config.PROJECT_STATUS.COMPLETED && row[5] !== config.PROJECT_STATUS.CANCELLED) {
+        activeProjects.add(`${row[1]}_${row[2]}_${row[3]}`);
+      }
+    });
+  }
+  
+  let registeredCount = 0;
+  
+  selectedData.forEach(item => {
+    item.parts.forEach(part => {
+      const key = `${item.shopCode}_${item.machineId}_${part}`;
+      
+      // 重複チェック
+      if (!activeProjects.has(key)) {
+        registerProject(item.shopCode, item.machineId, part, config.PROJECT_STATUS.ESTIMATE_REQ);
+        activeProjects.add(key); // 同じバッチ内での重複も防止
+        registeredCount++;
+      }
+    });
+  });
+  
+  return { registeredCount: registeredCount };
+}
+
+/**
+ * 選択された機械のメール下書き作成 + 案件登録
+ * @param {Array} selectedData - [{ shopCode, shopName, machineId, parts: ['レール車輪', '布ブラシ'], nextWorkMemo }]
+ * @returns {Object} { registeredCount: number, draftCount: number }
+ */
+function createDraftsForSelected(selectedData) {
+  const config = getConfig();
+  const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
+  const scheduleData = sheet.getDataRange().getValues();
+  
+  // 既存のアクティブな案件を取得（重複登録防止）
+  const activeProjects = new Set();
+  if (scheduleData.length > 1) {
+    scheduleData.slice(1).forEach(row => {
+      if (row[5] !== config.PROJECT_STATUS.COMPLETED && row[5] !== config.PROJECT_STATUS.CANCELLED) {
+        activeProjects.add(`${row[1]}_${row[2]}_${row[3]}`);
+      }
+    });
+  }
+  
+  // 宛先定義
+  const RECIPIENT_DAIFUKU = "nishimura@selfix.jp"; // 本来は木村様宛
+  const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // 本来は松永様宛
+  
+  // 業者別の依頼事項リスト
+  const daifukuItems = [];
+  const beautyItems = [];
+  
+  let registeredCount = 0;
+  
+  // 店舗ごとにグループ化
+  const shopGroups = {};
+  selectedData.forEach(item => {
+    const shopCode = item.shopCode;
+    if (!shopGroups[shopCode]) {
+      shopGroups[shopCode] = {
+        name: item.shopName,
+        machines: [],
+        subsidyInfo: null,
+        nextWorkMemo: item.nextWorkMemo || ""
+      };
+      
+      // 補助金チェック（洗車機リストから取得）
+      const carWashList = getCarWashListCached();
+      const machineData = carWashList.find(m => m['店舗コード'] === shopCode);
+      if (machineData && machineData['本体ステータス'] === config.STATUS.PREPARE) {
+        const check = checkSubsidyAlert(machineData['店舗名'], machineData['本体設置日']);
+        if (check) shopGroups[shopCode].subsidyInfo = check.message;
+      }
+    }
+    
+    // 各機械の部品を処理
+    item.parts.forEach(part => {
+      const key = `${item.shopCode}_${item.machineId}_${part}`;
+      
+      // 重複チェック
+      if (!activeProjects.has(key)) {
+        // 案件登録
+        registerProject(item.shopCode, item.machineId, part, config.PROJECT_STATUS.ESTIMATE_REQ);
+        activeProjects.add(key);
+        registeredCount++;
+        
+        // メール項目の追加
+        let displayPartName = part;
+        if (displayPartName === 'レール車輪') {
+          displayPartName = 'レール車輪等';
+        }
+        
+        if (part === '本体') {
+          // 本体交換 → ダイフク案件
+          daifukuItems.push({
+            shopName: item.shopName,
+            machineId: '全機',
+            content: '洗車機・クリーナー・マット洗い機 本体入れ替え',
+            memo: shopGroups[shopCode].subsidyInfo || "",
+            userMemo: item.nextWorkMemo || ""
+          });
+          
+          // スプラッシュブロー（特定の店舗以外）→ ビユーテー案件
+          const excludedShops = ['東和歌山', '糸我', '貴志川'];
+          if (!excludedShops.includes(item.shopName)) {
+            const isSbAlreadyActive = Array.from(activeProjects).some(p => p.includes(shopCode) && p.includes('スプラッシュブロー'));
+            if (!isSbAlreadyActive) {
+              beautyItems.push({
+                shopName: item.shopName,
+                machineId: 'SB1',
+                content: 'スプラッシュブローSB1 入れ替え',
+                memo: '',
+                userMemo: ''
+              });
+              registerProject(shopCode, 'SB1', 'スプラッシュブロー', config.PROJECT_STATUS.ESTIMATE_REQ);
+              registeredCount++;
+            }
+          }
+        } else if (part === 'スプラッシュブロー') {
+          // スプラッシュブロー → ビユーテー案件
+          beautyItems.push({
+            shopName: item.shopName,
+            machineId: item.machineId,
+            content: 'スプラッシュブローSB1 入れ替え',
+            memo: '',
+            userMemo: item.nextWorkMemo || ""
+          });
+        } else {
+          // 部品交換 → ダイフク案件
+          daifukuItems.push({
+            shopName: item.shopName,
+            machineId: item.machineId,
+            content: `${displayPartName} 交換`,
+            memo: "",
+            userMemo: item.nextWorkMemo || ""
+          });
+        }
+      }
+    });
+  });
+  
+  // メール下書き作成（ダイフク：木村様）
+  let draftCount = 0;
+  if (daifukuItems.length > 0) {
+    const subject = `【見積依頼】洗車機関連案件のお見積り依頼（${daifukuItems.length}件）`;
+    const body = generateConsolidatedTemplate(daifukuItems, '木村様');
+    GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
+    draftCount++;
+  }
+  
+  // メール下書き作成（ビユーテー：松永様）
+  if (beautyItems.length > 0) {
+    const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
+    const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
+    GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
+    draftCount++;
+  }
+  
+  return { registeredCount: registeredCount, draftCount: draftCount };
+}
+
 function createScheduleAndRecord(s, m, t, d, n, existingId = null) { 
   const config = getConfig();
   const r = createExchangeEvent(s, m, t, d, n); 
