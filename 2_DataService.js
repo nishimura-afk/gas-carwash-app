@@ -77,10 +77,8 @@ function calculateExchangeStatus(masterItem, currentAccumulatedCount, avgMonthly
   if (currentMonth === 1) {
     // 1月の場合：15ヶ月後の予測で判定
     const forecastCount = countSinceBodyExchange + (avgMonthlyCount * criteria.MACHINE_BODY.FORECAST_MONTHS);
-    Logger.log(`[本体判定-1月] 累計: ${countSinceBodyExchange}, 月平均: ${avgMonthlyCount}, 予測: ${forecastCount}, 閾値: ${criteria.MACHINE_BODY.THRESHOLD}`);
     if (forecastCount >= criteria.MACHINE_BODY.THRESHOLD) {
       bodyStatus = status.PREPARE;
-      Logger.log(`[本体判定-1月] アラート発生: ${forecastCount} >= ${criteria.MACHINE_BODY.THRESHOLD}`);
     }
   } else {
     // 2月以降：累計台数のみで判定
