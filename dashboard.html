@@ -1,5 +1,15 @@
 <!-- Dashboard View (Updated) -->
 <div class="space-y-6">
+  <div class="flex justify-between items-center border-b pb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-home mr-2"></i>ダッシュボード</h2>
+      <p class="text-sm text-gray-600">洗車機の状態と進行中の案件を一覧表示します。</p>
+    </div>
+    <button onclick="dashboardInit(true)" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-bold transition">
+      <i class="fas fa-sync-alt mr-1"></i> 最新情報を取得
+    </button>
+  </div>
+  
   <!-- (HTML内容は変更なし、scriptのみ修正) -->
   <div class="bg-blue-50 p-6 rounded-lg border border-blue-200 shadow-sm">
     <h3 class="text-lg font-bold text-blue-800 mb-3"><i class="fas fa-tasks mr-2"></i>進行中の案件（見積～発注）</h3>
@@ -37,7 +47,6 @@
   <div class="bg-white rounded border shadow-sm">
     <div class="p-4 border-b bg-gray-50 font-bold flex items-center">
       <i class="fas fa-tools text-gray-500 mr-2"></i>対応が必要な店舗一覧
-      <button onclick="dashboardInit(true)" class="ml-auto text-sm text-gray-500 hover:text-blue-600"><i class="fas fa-sync-alt"></i></button>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm text-left">

@@ -1,6 +1,16 @@
 <!-- Email Draft View (Updated with Auto-Creation) -->
 <div class="space-y-6">
   
+  <div class="flex justify-between items-center border-b pb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-envelope mr-2"></i>メール下書き作成</h2>
+      <p class="text-sm text-gray-600">見積依頼メールの下書きを自動作成または手動作成します。</p>
+    </div>
+    <button onclick="emailInit(true)" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-bold transition">
+      <i class="fas fa-sync-alt mr-1"></i> 最新情報を取得
+    </button>
+  </div>
+  
   <!-- 自動作成セクション -->
   <div class="bg-yellow-50 p-6 rounded shadow border border-yellow-200">
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
@@ -84,15 +94,17 @@
 <script>
 let shopListCacheForEmail = [];
 
-function emailInit() {
-  if (shopListCacheForEmail.length === 0) {
-    showLoading(true);
-    google.script.run.withSuccessHandler(list => {
-      shopListCacheForEmail = list;
-      populateShopSelect(list);
-      showLoading(false);
-    }).getCarWashList();
+function emailInit(forceRefresh = false) {
+  if (!forceRefresh && shopListCacheForEmail.length > 0) {
+    return; // キャッシュがあればスキップ
   }
+  
+  showLoading(true);
+  google.script.run.withSuccessHandler(list => {
+    shopListCacheForEmail = list;
+    populateShopSelect(list);
+    showLoading(false);
+  }).getCarWashList();
 }
 
 function populateShopSelect(list) {

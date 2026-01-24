@@ -1,13 +1,13 @@
 <!-- Management View -->
 <div class="space-y-4">
   <div class="flex justify-between items-center">
-    <h2 class="text-lg font-bold">全洗車機ステータス一覧</h2>
-    <div class="flex gap-2">
-      <div class="text-xs text-gray-500 pt-2">※<i class="fas fa-sticky-note"></i>アイコンで次回作業のメモを残せます</div>
-      <button onclick="managementInit()" class="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm">
-        <i class="fas fa-sync-alt"></i> 更新
-      </button>
+    <div>
+      <h2 class="text-lg font-bold">全洗車機ステータス一覧</h2>
+      <div class="text-xs text-gray-500 pt-1">※<i class="fas fa-sticky-note"></i>アイコンで次回作業のメモを残せます</div>
     </div>
+    <button onclick="managementInit()" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-bold transition">
+      <i class="fas fa-sync-alt mr-1"></i> 最新情報を取得
+    </button>
   </div>
   
   <!-- 選択操作ボタン -->
@@ -316,44 +316,117 @@ function renderPartsSelectionList() {
   
   selectedMachinesData.forEach((machine, index) => {
     const div = document.createElement('div');
-    div.className = 'border rounded p-4 bg-gray-50';
+    div.className = 'border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition';
     
     const subsidyBadge = machine.isSubsidy 
       ? '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">補助金</span>'
       : '';
     
+    // ステータス表示用の色とアイコンを決定
+    const getStatusBadge = (status, type) => {
+      if (!status || status === '-') return '<span class="text-gray-400 text-xs">-</span>';
+      if (status === '通知' || status.includes('通知')) {
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-300"><i class="fas fa-exclamation-triangle mr-1"></i>${status}</span>`;
+      }
+      if (status === '交換準備') {
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-orange-100 text-orange-700 border border-orange-300"><i class="fas fa-tools mr-1"></i>${status}</span>`;
+      }
+      return `<span class="text-gray-600 text-xs">${status}</span>`;
+    };
+    
+    const railStatusBadge = getStatusBadge(machine.railStatus, 'rail');
+    const brushStatusBadge = getStatusBadge(machine.brushStatus, 'brush');
+    const bodyStatusBadge = getStatusBadge(machine.bodyStatus, 'body');
+    
+    // 交換が必要かどうかを判定
+    const needsRail = machine.railStatus === '通知';
+    const needsBrush = machine.brushStatus && machine.brushStatus.includes('通知');
+    const needsBody = machine.bodyStatus === '交換準備';
+    
     // 選択可能な部品を決定
     const availableParts = [];
+    
     if (machine.bodyStatus === '交換準備') {
-      availableParts.push({ id: '本体', label: '本体' });
+      // 本体が交換準備の場合、本体のみ選択可能
+      availableParts.push({ 
+        id: '本体', 
+        label: '本体', 
+        recommended: true,
+        reason: '本体が交換準備のため',
+        disabled: false
+      });
     } else {
-      // 本体が交換準備でない場合、レールとブラシを選択可能
-      // ただし、ステータスに関係なく全て選択可能にする
-      availableParts.push({ id: 'レール車輪', label: 'レール車輪' });
-      availableParts.push({ id: '布ブラシ', label: '布ブラシ' });
-      availableParts.push({ id: '本体', label: '本体' });
+      // 本体が交換準備でない場合、全ての部品を選択可能
+      availableParts.push({ 
+        id: 'レール車輪', 
+        label: 'レール車輪', 
+        recommended: needsRail,
+        reason: needsRail ? 'レールステータスが「通知」のため' : '任意で選択可能',
+        disabled: false
+      });
+      availableParts.push({ 
+        id: '布ブラシ', 
+        label: '布ブラシ', 
+        recommended: needsBrush,
+        reason: needsBrush ? 'ブラシステータスが「通知」のため' : '任意で選択可能',
+        disabled: false
+      });
+      availableParts.push({ 
+        id: '本体', 
+        label: '本体', 
+        recommended: false,
+        reason: '任意で選択可能',
+        disabled: false
+      });
     }
     
     const checkboxes = availableParts.map(part => {
       const isChecked = machine.selectedParts.includes(part.id);
+      const recommendedBadge = part.recommended 
+        ? '<span class="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 border border-blue-300"><i class="fas fa-star mr-1"></i>推奨</span>'
+        : '';
+      
       return `
-        <label class="flex items-center cursor-pointer">
-          <input type="checkbox" 
-                 class="part-checkbox mr-2" 
-                 data-machine-index="${index}"
-                 data-part-id="${part.id}"
-                 ${isChecked ? 'checked' : ''}
-                 onchange="updateMachineParts(${index}, '${part.id}', this.checked)">
-          <span>${part.label}</span>
-        </label>
+        <div class="flex items-center p-2 rounded border ${part.recommended ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'} hover:bg-blue-100 transition">
+          <label class="flex items-center cursor-pointer flex-1">
+            <input type="checkbox" 
+                   class="part-checkbox mr-2 w-4 h-4" 
+                   data-machine-index="${index}"
+                   data-part-id="${part.id}"
+                   ${isChecked ? 'checked' : ''}
+                   ${part.disabled ? 'disabled' : ''}
+                   onchange="updateMachineParts(${index}, '${part.id}', this.checked)">
+            <span class="font-medium">${part.label}</span>
+            ${recommendedBadge}
+          </label>
+          <span class="text-xs text-gray-500 ml-2">${part.reason}</span>
+        </div>
       `;
     }).join('');
     
     div.innerHTML = `
-      <div class="font-bold text-gray-800 mb-2">
-        ${machine.shopName}${subsidyBadge} - ${machine.machineId} (${machine.shopCode})
+      <div class="mb-3 pb-3 border-b">
+        <div class="font-bold text-gray-800 text-lg mb-1">
+          ${machine.shopName}${subsidyBadge} - ${machine.machineId}
+        </div>
+        <div class="text-xs text-gray-500 font-mono mb-2">店舗コード: ${machine.shopCode}</div>
+        <div class="flex flex-wrap gap-2 text-xs">
+          <div class="flex items-center">
+            <span class="text-gray-600 mr-1">レール:</span>
+            ${railStatusBadge}
+          </div>
+          <div class="flex items-center">
+            <span class="text-gray-600 mr-1">ブラシ:</span>
+            ${brushStatusBadge}
+          </div>
+          <div class="flex items-center">
+            <span class="text-gray-600 mr-1">本体:</span>
+            ${bodyStatusBadge}
+          </div>
+        </div>
       </div>
-      <div class="flex flex-wrap gap-4">
+      <div class="space-y-2">
+        <div class="text-xs font-bold text-gray-600 mb-2">交換対象部品を選択:</div>
         ${checkboxes}
       </div>
     `;

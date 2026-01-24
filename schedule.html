@@ -1,6 +1,16 @@
 <!-- Schedule View -->
 <div class="space-y-8">
   
+  <div class="flex justify-between items-center border-b pb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-calendar-alt mr-2"></i>スケジュール管理</h2>
+      <p class="text-sm text-gray-600">交換作業の予定日を登録・管理します。</p>
+    </div>
+    <button onclick="scheduleInit()" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-bold transition">
+      <i class="fas fa-sync-alt mr-1"></i> 最新情報を取得
+    </button>
+  </div>
+  
   <!-- ★追加: 発注済み案件からの登録セクション -->
   <div id="ready-to-schedule-section" class="hidden">
     <div class="bg-green-50 p-4 border-l-4 border-green-500 mb-4">

@@ -1,8 +1,18 @@
 <!-- Completion Report View -->
 <div class="space-y-4">
+  <div class="flex justify-between items-center border-b pb-4">
+    <div>
+      <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-check-circle mr-2"></i>作業完了報告</h2>
+      <p class="text-sm text-gray-600">スケジュールされた交換作業が完了したら、ここで報告を行ってください。マスタおよび履歴が自動更新されます。</p>
+    </div>
+    <button onclick="completeInit()" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-bold transition">
+      <i class="fas fa-sync-alt mr-1"></i> 最新情報を取得
+    </button>
+  </div>
+  
   <div class="bg-blue-50 border-l-4 border-blue-500 p-4">
-    <p class="text-blue-700 font-bold"><i class="fas fa-check-circle mr-2"></i>作業完了報告</p>
-    <p class="text-sm text-blue-600">スケジュールされた交換作業が完了したら、ここで報告を行ってください。マスタおよび履歴が自動更新されます。</p>
+    <p class="text-blue-700 font-bold"><i class="fas fa-info-circle mr-2"></i>完了報告の流れ</p>
+    <p class="text-sm text-blue-600">各案件の「完了報告」ボタンをクリックし、完了日と累計台数を入力してください。</p>
   </div>
 
   <div id="complete-list-container" class="grid grid-cols-1 gap-4">
