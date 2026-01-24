@@ -460,6 +460,7 @@ function closeDashboardPartsModal() {
 function confirmDashboardPartsSelection() {
   if (!window.dashSelectedDataForModal || !dashCurrentActionType) {
     alert('エラー: データが見つかりません');
+    showLoading(false);
     return;
   }
   
@@ -469,6 +470,9 @@ function confirmDashboardPartsSelection() {
     alert('少なくとも1つの部品を選択してください');
     return;
   }
+  
+  // ★重要: dashCurrentActionTypeを保存（closeDashboardPartsModalでnullになる前に）
+  const actionType = dashCurrentActionType;
   
   // データを整形
   const selectedData = window.dashSelectedDataForModal
@@ -481,11 +485,15 @@ function confirmDashboardPartsSelection() {
       nextWorkMemo: m.nextWorkMemo || ''
     }));
   
+  console.log('送信データ:', selectedData);
+  console.log('アクションタイプ:', actionType);
+  
+  // モーダルを閉じる（dashCurrentActionTypeはnullになるが、actionTypeに保存済み）
   closeDashboardPartsModal();
   
   showLoading(true);
   
-  if (dashCurrentActionType === 'register') {
+  if (actionType === 'register') {
     // 案件登録
     google.script.run
       .withSuccessHandler(result => {
@@ -504,7 +512,7 @@ function confirmDashboardPartsSelection() {
         console.error('案件登録エラー:', e);
       })
       .registerSelectedProjects(selectedData);
-  } else if (dashCurrentActionType === 'draft') {
+  } else if (actionType === 'draft') {
     // メール下書き作成
     // タイムアウト処理を追加（30秒）
     const timeoutId = setTimeout(() => {
@@ -536,7 +544,8 @@ function confirmDashboardPartsSelection() {
       .createDraftsForSelected(selectedData);
   } else {
     showLoading(false);
-    alert('不明なアクションタイプです。');
+    console.error('不明なアクションタイプ:', actionType);
+    alert('不明なアクションタイプです: ' + actionType);
   }
 }
 function updateStatus(id, newStatus) {
