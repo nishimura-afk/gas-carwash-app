@@ -1,0 +1,201 @@
+<!-- Email Draft View (Updated with Auto-Creation) -->
+<div class="space-y-6">
+  
+  <!-- 自動作成セクション -->
+  <div class="bg-yellow-50 p-6 rounded shadow border border-yellow-200">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
+      <div>
+        <h2 class="text-lg font-bold text-yellow-800"><i class="fas fa-robot mr-2"></i>アラート対象の自動下書き作成</h2>
+        <p class="text-sm text-yellow-700 mt-1">
+          現在「通知」や「交換準備」が出ている洗車機の見積依頼メールを一括で下書き作成します。<br>
+          <span class="font-bold text-red-600">※同時に「見積依頼中」として案件リストに登録されます。</span>
+        </p>
+      </div>
+      <button onclick="runAutoDraft()" class="mt-3 md:mt-0 bg-yellow-600 text-white font-bold py-2 px-6 rounded hover:bg-yellow-700 shadow transition transform hover:scale-105 whitespace-nowrap">
+        <i class="fas fa-mail-bulk mr-2"></i>一括作成を実行
+      </button>
+    </div>
+
+    <!-- 結果表示エリア -->
+    <div id="auto-draft-result" class="hidden mt-4 bg-white p-4 rounded border border-gray-200">
+      <h3 class="text-sm font-bold text-gray-700 mb-2">今回作成・登録された案件一覧:</h3>
+      <ul id="auto-draft-list" class="list-disc list-inside text-sm text-gray-600 space-y-1">
+        <!-- リストがここに追加されます -->
+      </ul>
+    </div>
+  </div>
+
+  <!-- 手動作成セクション -->
+  <div class="bg-white p-6 rounded shadow border">
+    <h2 class="text-lg font-bold mb-4 text-gray-800"><i class="fas fa-envelope-open-text mr-2"></i>手動メール作成</h2>
+    
+    <div class="bg-gray-50 p-4 rounded border mb-6">
+      <div class="grid grid-cols-1 gap-4">
+        <div>
+           <label class="block text-xs font-bold text-gray-500 mb-1">対象店舗名</label>
+           <select id="email-shop-select" class="w-full border rounded p-2 bg-white">
+             <option value="">店舗を選択してください...</option>
+           </select>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+             <label class="block text-xs font-bold text-gray-500 mb-1">洗車機ID (区別)</label>
+             <input type="text" id="email-machine" placeholder="例: A" class="w-full border rounded p-2">
+          </div>
+          <div>
+             <label class="block text-xs font-bold text-gray-500 mb-1">交換部品名</label>
+             <input type="text" id="email-part" placeholder="例: レール車輪" class="w-full border rounded p-2">
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-bold text-gray-500 mb-1">用件タイプ</label>
+            <select id="email-type" class="w-full border rounded p-2 bg-white">
+              <option value="quote">見積依頼</option>
+              <option value="order">発注連絡</option>
+            </select>
+          </div>
+          <div class="flex items-end">
+            <button onclick="generateDraft()" class="w-full bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">
+              <i class="fas fa-pen mr-1"></i> 手動で下書き生成
+            </button>
+          </div>
+        </div>
+        <!-- ★追加: 手動登録用チェックボックス -->
+        <div class="flex items-center mt-2">
+          <input type="checkbox" id="register-project-check" class="h-4 w-4 text-blue-600 border-gray-300 rounded" checked>
+          <label for="register-project-check" class="ml-2 text-sm text-gray-700 font-bold">
+            この内容を「案件リスト（見積依頼中）」にも登録する
+          </label>
+        </div>
+      </div>
+    </div>
+    
+    <div>
+      <div class="flex justify-between items-end mb-1">
+        <label class="block text-xs font-bold text-gray-500">生成結果</label>
+        <button onclick="copyToClipboard()" class="text-xs text-blue-600 hover:underline">コピー</button>
+      </div>
+      <textarea id="email-result" class="w-full h-48 border rounded p-4 font-mono text-sm leading-relaxed bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ここにメール文面が生成されます"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+let shopListCacheForEmail = [];
+
+function emailInit() {
+  if (shopListCacheForEmail.length === 0) {
+    showLoading(true);
+    google.script.run.withSuccessHandler(list => {
+      shopListCacheForEmail = list;
+      populateShopSelect(list);
+      showLoading(false);
+    }).getCarWashList();
+  }
+}
+
+function populateShopSelect(list) {
+  const select = document.getElementById('email-shop-select');
+  const uniqueShops = [...new Set(list.map(item => item['店舗名']))];
+  uniqueShops.sort();
+  uniqueShops.forEach(shopName => {
+    const option = document.createElement('option');
+    option.value = shopName;
+    option.textContent = shopName;
+    select.appendChild(option);
+  });
+}
+
+// 自動作成の実行
+function runAutoDraft() {
+  if (!confirm('対象の全ての洗車機について、Gmail下書きを作成し、「見積依頼中」として登録しますか？')) return;
+
+  showLoading(true);
+  document.getElementById('auto-draft-result').classList.add('hidden');
+  
+  google.script.run
+    .withSuccessHandler((createdLogs) => {
+      showLoading(false);
+      const resultArea = document.getElementById('auto-draft-result');
+      const listArea = document.getElementById('auto-draft-list');
+      resultArea.classList.remove('hidden');
+      listArea.innerHTML = '';
+
+      if (createdLogs.length === 0) {
+        listArea.innerHTML = '<li class="text-gray-500">新規に作成された下書きはありませんでした。</li>';
+      } else {
+        createdLogs.forEach(log => {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="font-bold text-blue-600">登録・作成済:</span> ${log.shopName} (${log.machineId}) - ${log.part}`;
+          listArea.appendChild(li);
+        });
+        alert(`${createdLogs.length}件の案件を登録し、メール下書きを作成しました。`);
+      }
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('エラーが発生しました: ' + e);
+    })
+    .createDraftsForAlerts();
+}
+
+function generateDraft() {
+  const type = document.getElementById('email-type').value;
+  const s = document.getElementById('email-shop-select').value;
+  const m = document.getElementById('email-machine').value;
+  const t = document.getElementById('email-part').value;
+  const shouldRegister = document.getElementById('register-project-check').checked;
+
+  if (!s || !m || !t) {
+    alert('店舗、洗車機ID、部品名を入力してください');
+    return;
+  }
+
+  showLoading(true);
+  
+  // 文面生成と（必要なら）案件登録を同時に行う処理があればベストだが
+  // 今回は文面生成 -> 手動コピーの流れなので、登録処理だけ非同期で走らせる形にする
+  
+  // 1. 文面生成
+  const handler = (res) => {
+    document.getElementById('email-result').value = res;
+    showLoading(false);
+    
+    // 2. 案件登録（チェックが入っている場合）
+    if (shouldRegister && type === 'quote') {
+      // ユーザーに見えないところで登録
+      // 店舗コードが必要だが、セレクトボックスは名前だけなので、マスタ検索が必要
+      // 簡易的に店舗名から店舗コードを逆引きするロジックが必要だが、
+      // ここでは複雑になるため「店舗名」のまま登録してしまうか、
+      // 正確にはCode.gs側で処理するのが良い。
+      // ★修正案: Code.gsに手動登録用の関数 registerManualProject を作るのが安全。
+      // 今回は一旦アラートを出し、登録機能は「自動作成」をメインに使ってもらう運用とするか、
+      // または以下の簡易実装を行う。
+      
+      const shopItem = shopListCacheForEmail.find(item => item['店舗名'] === s);
+      const sCode = shopItem ? shopItem['店舗コード'] : '';
+      
+      if (sCode) {
+        google.script.run.registerProject(sCode, m, t, '見積依頼中');
+        alert('案件リストに「見積依頼中」として登録しました。');
+      } else {
+        alert('店舗コードが特定できないため、案件登録はスキップされました。');
+      }
+    }
+  };
+  
+  if (type === 'quote') {
+    google.script.run.withSuccessHandler(handler).generateQuoteRequest(s, m, t);
+  } else {
+    google.script.run.withSuccessHandler(handler).generateOrder(s, m, t);
+  }
+}
+
+function copyToClipboard() {
+  const copyText = document.getElementById("email-result");
+  copyText.select();
+  document.execCommand("copy");
+  alert("コピーしました");
+}
+</script>

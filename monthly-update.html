@@ -1,0 +1,267 @@
+<!-- Monthly Update View (Batch Input / Auto Cleanup) -->
+<div class="space-y-4">
+  <div class="flex flex-col md:flex-row justify-between items-center bg-blue-50 p-4 rounded border border-blue-200">
+    <div>
+      <h2 class="text-lg font-bold text-blue-800">月次データ一括入力</h2>
+      <p class="text-sm text-blue-600">各店舗の当月稼働台数を入力してください。入力内容は自動的に端末に一時保存されます。</p>
+    </div>
+    <div class="mt-3 md:mt-0 flex items-center space-x-2 bg-white p-2 rounded shadow">
+      <label class="text-sm font-bold text-gray-700">対象年月:</label>
+      <input type="month" id="batch-month" class="border rounded p-1 text-lg font-bold text-gray-700" onchange="handleMonthChange()">
+    </div>
+  </div>
+  
+  <div class="overflow-x-auto border rounded-lg shadow bg-white">
+    <table class="w-full text-sm text-left whitespace-nowrap">
+      <thead class="bg-gray-100 text-gray-700 sticky top-0 z-10">
+        <tr>
+          <th class="p-3 border-b">店舗名 / 店舗CD</th>
+          <th class="p-3 border-b">区別</th>
+          <th class="p-3 border-b">現在の累計</th>
+          <th class="p-3 border-b w-40">当月稼働台数 (入力)</th>
+        </tr>
+      </thead>
+      <tbody id="monthly-batch-body" class="divide-y">
+        <tr><td colspan="4" class="p-4 text-center">読み込み中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex justify-between items-center pt-4 pb-8">
+    <div id="draft-status" class="text-sm text-gray-500 italic"></div>
+    <button onclick="submitBatchMonthly()" class="bg-green-600 text-white font-bold py-3 px-8 rounded shadow hover:bg-green-700 transition transform hover:scale-105">
+      <i class="fas fa-save mr-2"></i>一括保存する
+    </button>
+  </div>
+</div>
+
+<script>
+let carWashCache = [];
+
+function loadMonthlyInput(forceRefresh = false) {
+  // デフォルト日付の設定
+  const today = new Date();
+  const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const yyyy = lastMonth.getFullYear();
+  const mm = ('0' + (lastMonth.getMonth() + 1)).slice(-2);
+  
+  const monthInput = document.getElementById('batch-month');
+  if (!monthInput.value) {
+    monthInput.value = `${yyyy}-${mm}`;
+  }
+
+  // ★追加: 画面を開いたついでに、古いゴミデータを掃除する
+  cleanupOldDrafts(monthInput.value);
+
+  // キャッシュ利用
+  if (!forceRefresh && window.g_cache && window.g_cache.management) {
+     renderBatchForm(window.g_cache.management);
+     return;
+  }
+
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(list => {
+      // キャッシュに保存（managementと共有できるデータ構造なら再利用）
+      if(window.g_cache) window.g_cache.management = list;
+      renderBatchForm(list);
+    })
+    .withFailureHandler(e => { showLoading(false); alert('データ取得失敗: ' + e); })
+    .getCarWashList();
+}
+
+window.loadMonthlyInput = loadMonthlyInput;
+
+function renderBatchForm(list) {
+  carWashCache = list; 
+  showLoading(false);
+  const tbody = document.getElementById('monthly-batch-body');
+  tbody.innerHTML = '';
+
+  if (!list || list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center">データがありません</td></tr>';
+    return;
+  }
+
+  list.sort((a, b) => a['店舗コード'] - b['店舗コード']);
+
+  list.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    tr.className = "hover:bg-blue-50 transition";
+    const uniqueKey = `${item['店舗コード']}_${item['区別']}`;
+
+    tr.innerHTML = `
+      <td class="p-3">
+        <div class="font-bold text-gray-800">${item['店舗名']}</div>
+        <div class="text-xs text-gray-500 font-mono">${item['店舗コード']}</div>
+      </td>
+      <td class="p-3 font-mono">${item['区別']}</td>
+      <td class="p-3 text-gray-500">
+        ${Number(item['累計台数']).toLocaleString()} 台
+      </td>
+      <td class="p-3 bg-yellow-50">
+        <input type="number" id="input-${index}" 
+          data-key="${uniqueKey}"
+          class="w-full border border-gray-300 rounded p-2 text-right font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+          placeholder="0" min="0" tabIndex="${index + 1}"
+          onkeydown="handleEnterKey(event, ${index})"
+          oninput="saveDraft('${uniqueKey}', this.value)">
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  restoreDrafts();
+}
+
+function handleMonthChange() {
+  if (carWashCache.length > 0) {
+    renderBatchForm(carWashCache);
+  }
+}
+
+function handleEnterKey(event, currentIndex) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const nextInput = document.getElementById(`input-${currentIndex + 1}`);
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.select();
+    }
+  }
+}
+
+function getDraftKey() {
+  const month = document.getElementById('batch-month').value;
+  return `carwash_draft_${month}`;
+}
+
+function saveDraft(uniqueKey, value) {
+  const storageKey = getDraftKey();
+  let drafts = JSON.parse(localStorage.getItem(storageKey) || '{}');
+  
+  if (value === "") {
+    delete drafts[uniqueKey];
+  } else {
+    drafts[uniqueKey] = value;
+  }
+  
+  localStorage.setItem(storageKey, JSON.stringify(drafts));
+  updateDraftStatus();
+}
+
+function restoreDrafts() {
+  const storageKey = getDraftKey();
+  const drafts = JSON.parse(localStorage.getItem(storageKey) || '{}');
+  let restoredCount = 0;
+
+  const inputs = document.querySelectorAll('input[type="number"][data-key]');
+  inputs.forEach(input => {
+    const key = input.dataset.key;
+    if (drafts[key] !== undefined) {
+      input.value = drafts[key];
+      input.classList.add('bg-yellow-100'); 
+      restoredCount++;
+    } else {
+      input.value = ''; 
+      input.classList.remove('bg-yellow-100');
+    }
+  });
+
+  updateDraftStatus(restoredCount > 0);
+}
+
+// ★追加: 古いドラフトデータの自動削除機能
+function cleanupOldDrafts(currentMonthStr) {
+  if (!currentMonthStr) return;
+  
+  const allKeys = Object.keys(localStorage);
+  const currentKey = `carwash_draft_${currentMonthStr}`;
+
+  allKeys.forEach(key => {
+    // このアプリのドラフトデータかつ、現在の月ではない場合
+    if (key.startsWith('carwash_draft_') && key !== currentKey) {
+      const draftMonth = key.replace('carwash_draft_', '');
+      
+      // 3ヶ月以上前のデータなら削除
+      const monthsDiff = getMonthsDiff(draftMonth, currentMonthStr);
+      if (monthsDiff > 3) {
+        localStorage.removeItem(key);
+        // console.log(`Cleaned up old draft: ${key}`);
+      }
+    }
+  });
+}
+
+function getMonthsDiff(month1, month2) {
+  // month1(old), month2(new) format: YYYY-MM
+  const d1 = new Date(month1 + '-01');
+  const d2 = new Date(month2 + '-01');
+  return (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+}
+
+function clearCurrentDraft() {
+  const storageKey = getDraftKey();
+  localStorage.removeItem(storageKey);
+  updateDraftStatus();
+}
+
+function updateDraftStatus(hasDrafts) {
+  const statusEl = document.getElementById('draft-status');
+  if (hasDrafts || localStorage.getItem(getDraftKey())) {
+    statusEl.innerHTML = '<i class="fas fa-save mr-1"></i>入力内容は端末に自動保存されています';
+  } else {
+    statusEl.innerText = '';
+  }
+}
+
+function submitBatchMonthly() {
+  const monthVal = document.getElementById('batch-month').value;
+  if (!monthVal) {
+    alert('対象年月を選択してください');
+    return;
+  }
+  
+  const updates = [];
+  const dateStr = monthVal + '-01'; 
+
+  carWashCache.forEach((item, index) => {
+    const inputEl = document.getElementById(`input-${index}`);
+    const val = inputEl.value;
+    
+    if (val !== "") {
+      updates.push({
+        dateMonth: dateStr,
+        shopCode: item['店舗コード'],
+        machineIdentifier: item['区別'],
+        dailyCount: Number(val)
+      });
+    }
+  });
+
+  if (updates.length === 0) {
+    alert('入力されたデータがありません。台数を入力してください。');
+    return;
+  }
+
+  const confirmMsg = `${monthVal}分として、${updates.length}件のデータを保存しますか？\n（同月のデータは上書き修正されます）`;
+  if (!confirm(confirmMsg)) return;
+
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler((res) => {
+      showLoading(false);
+      clearCurrentDraft();
+      // キャッシュクリアして再読み込み
+      if(window.clearCache) window.clearCache('management'); 
+      
+      alert('保存が完了しました。\nバックグラウンドで集計を更新しています。');
+      renderBatchForm(carWashCache);
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('保存エラー: ' + e);
+    })
+    .recordMonthlyUpdate(updates);
+}
+</script>

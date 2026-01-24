@@ -1,0 +1,158 @@
+<!-- Dashboard View (Updated) -->
+<div class="space-y-6">
+  <!-- (HTML内容は変更なし、scriptのみ修正) -->
+  <div class="bg-blue-50 p-6 rounded-lg border border-blue-200 shadow-sm">
+    <h3 class="text-lg font-bold text-blue-800 mb-3"><i class="fas fa-tasks mr-2"></i>進行中の案件（見積～発注）</h3>
+    <div class="overflow-x-auto bg-white rounded border">
+      <table class="w-full text-sm text-left">
+        <thead class="bg-blue-100 text-blue-800">
+          <tr>
+            <th class="p-3">店舗名 / 機種</th>
+            <th class="p-3">案件内容</th>
+            <th class="p-3">現在のステータス</th>
+            <th class="p-3 text-right">アクション</th>
+          </tr>
+        </thead>
+        <tbody id="dash-projects-body" class="divide-y">
+          <tr><td colspan="4" class="p-4 text-center text-gray-500">案件はありません</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-blue-600 mt-2 text-right">※「発注済」になった案件は、案件管理画面で日程を登録してください。</p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="bg-red-50 p-6 rounded-lg border border-red-200 shadow-sm">
+      <h3 class="text-lg font-bold text-red-700"><i class="fas fa-exclamation-triangle mr-2"></i>要対応・注意</h3>
+      <div class="text-4xl font-bold text-red-600 mt-2" id="dash-notice-count">-</div>
+      <p class="text-sm text-red-500 mt-1">交換時期または警告が出ている洗車機</p>
+    </div>
+    <div class="bg-green-50 p-6 rounded-lg border border-green-200 shadow-sm">
+      <h3 class="text-lg font-bold text-green-700"><i class="fas fa-check-circle mr-2"></i>正常稼働中</h3>
+      <div class="text-4xl font-bold text-green-600 mt-2" id="dash-normal-count">-</div>
+      <p class="text-sm text-green-500 mt-1">問題のない洗車機</p>
+    </div>
+  </div>
+
+  <div class="bg-white rounded border shadow-sm">
+    <div class="p-4 border-b bg-gray-50 font-bold flex items-center">
+      <i class="fas fa-tools text-gray-500 mr-2"></i>対応が必要な店舗一覧
+      <button onclick="dashboardInit(true)" class="ml-auto text-sm text-gray-500 hover:text-blue-600"><i class="fas fa-sync-alt"></i></button>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm text-left">
+        <thead class="bg-gray-100 text-gray-700">
+          <tr>
+            <th class="p-3">店舗名 (区別)</th>
+            <th class="p-3 text-right">累計台数</th>
+            <th class="p-3">レール</th>
+            <th class="p-3">ブラシ</th>
+            <th class="p-3">本体</th>
+          </tr>
+        </thead>
+        <tbody id="dash-table-body" class="divide-y">
+          <tr><td colspan="5" class="p-4 text-center text-gray-500">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ★キャッシュ対応
+function dashboardInit(forceRefresh = false) {
+  // キャッシュがあれば即表示
+  if (!forceRefresh && window.g_cache.dashboard) {
+    renderDashboard(window.g_cache.dashboard);
+    return;
+  }
+
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(data => {
+      window.g_cache.dashboard = data; // キャッシュ保存
+      renderDashboard(data);
+    })
+    .withFailureHandler(e => alert('読み込みエラー: ' + e))
+    .getDashboardData();
+}
+
+function renderDashboard(data) {
+  showLoading(false);
+  document.getElementById('dash-notice-count').innerText = data.noticeCount + ' 台';
+  document.getElementById('dash-normal-count').innerText = data.normalCount + ' 台';
+  renderProjects(data.projects);
+  renderNoticeList(data.noticeList);
+}
+
+// ... (以下、renderProjects, renderNoticeList, updateStatus, deleteProject は変更なし) ...
+function renderProjects(projects) {
+  const tbody = document.getElementById('dash-projects-body');
+  tbody.innerHTML = '';
+  if (!projects || projects.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">現在進行中の案件はありません</td></tr>';
+    return;
+  }
+  projects.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.className = "hover:bg-blue-50";
+    let actionBtn = '';
+    if (p.status === '見積依頼中') {
+      actionBtn = `<button onclick="updateStatus('${p.id}', '見積受領')" class="bg-indigo-500 text-white px-3 py-1 rounded text-xs hover:bg-indigo-600">見積受領へ</button>`;
+    } else if (p.status === '見積受領') {
+      actionBtn = `<button onclick="updateStatus('${p.id}', '発注済')" class="bg-orange-500 text-white px-3 py-1 rounded text-xs hover:bg-orange-600">発注済へ</button>`;
+    } else if (p.status === '発注済') {
+      actionBtn = `<span class="text-green-600 font-bold text-xs"><i class="fas fa-check mr-1"></i>日程登録待ち</span>`;
+    }
+    tr.innerHTML = `
+      <td class="p-3">
+        <div class="font-bold text-gray-800">${p.shopName}</div>
+        <div class="text-xs text-gray-500">${p.machineId} (${p.shopCode})</div>
+      </td>
+      <td class="p-3 font-bold text-blue-900">${p.part}</td>
+      <td class="p-3">
+        <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-bold border border-gray-300">${p.status}</span>
+      </td>
+      <td class="p-3 text-right space-x-2">
+        ${actionBtn}
+        <button onclick="deleteProject('${p.id}')" class="text-gray-400 hover:text-red-500 transition" title="案件を取り消す"><i class="fas fa-trash-alt"></i></button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function renderNoticeList(list) {
+  const tbody = document.getElementById('dash-table-body');
+  tbody.innerHTML = '';
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-green-600 font-bold">現在、対応が必要な端末はありません</td></tr>';
+    return;
+  }
+  list.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.className = "hover:bg-red-50 transition";
+    let alertMsg = '';
+    if (item.subsidyAlert) {
+      alertMsg = `<div class="text-xs text-red-600 font-bold mt-1 bg-red-100 p-1 rounded"><i class="fas fa-exclamation-circle mr-1"></i>${item.subsidyAlert}</div>`;
+    }
+    tr.innerHTML = `
+      <td class="p-3"><div class="font-bold">${item['店舗名']}</div><div class="text-xs text-gray-500">機番: ${item['区別']}</div>${alertMsg}</td>
+      <td class="p-3 text-right font-mono font-bold text-gray-700">${Number(item['累計台数']).toLocaleString()}</td>
+      <td class="p-3 font-bold ${item['レールステータス'] !== '正常' ? 'text-red-600' : 'text-gray-300'}">${item['レールステータス']}</td>
+      <td class="p-3 font-bold ${item['ブラシステータス'].includes('通知') ? 'text-red-600' : 'text-gray-300'}">${item['ブラシステータス']}</td>
+      <td class="p-3 font-bold ${item['本体ステータス'] !== '正常' ? 'text-red-600' : 'text-gray-300'}">${item['本体ステータス']}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+function updateStatus(id, newStatus) {
+  if (!confirm(`ステータスを「${newStatus}」に変更しますか？`)) return;
+  showLoading(true);
+  google.script.run.withSuccessHandler(() => { clearCache('dashboard'); dashboardInit(true); }).withFailureHandler(e => { showLoading(false); alert('更新失敗: ' + e); }).updateProjectStatus(id, newStatus);
+}
+function deleteProject(id) {
+  if (!confirm('この案件を取り消しますか？\n（案件リストから削除され、取り消しステータスになります）')) return;
+  showLoading(true);
+  google.script.run.withSuccessHandler(() => { clearCache('dashboard'); dashboardInit(true); }).withFailureHandler(e => { showLoading(false); alert('削除失敗: ' + e); }).cancelProject(id);
+}
+</script>

@@ -1,0 +1,177 @@
+<!-- Management View -->
+<div class="space-y-4">
+  <div class="flex justify-between items-center">
+    <h2 class="text-lg font-bold">全洗車機ステータス一覧</h2>
+    <div class="flex gap-2">
+      <div class="text-xs text-gray-500 pt-2">※<i class="fas fa-sticky-note"></i>アイコンで次回作業のメモを残せます</div>
+      <button onclick="managementInit()" class="bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-sm">
+        <i class="fas fa-sync-alt"></i> 更新
+      </button>
+    </div>
+  </div>
+  
+  <div class="overflow-x-auto border rounded-lg shadow bg-white">
+    <table class="w-full text-sm text-left whitespace-nowrap">
+      <thead class="bg-gray-100 text-gray-700">
+        <tr>
+          <th class="p-3 border-b">店舗CD</th>
+          <th class="p-3 border-b">店舗名</th>
+          <th class="p-3 border-b">区別</th>
+          <th class="p-3 border-b text-right">累計台数</th>
+          <th class="p-3 border-b text-right bg-blue-50">月平均</th>
+          <th class="p-3 border-b">レール状況</th>
+          <th class="p-3 border-b">ブラシ状況</th>
+          <th class="p-3 border-b">本体状況</th>
+          <th class="p-3 border-b">設置日</th>
+          <th class="p-3 border-b text-center">メモ</th>
+        </tr>
+      </thead>
+      <tbody id="mgmt-table-body" class="divide-y bg-white">
+        <tr><td colspan="10" class="p-4 text-center">データを取得中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- メモ編集モーダル -->
+<div id="memo-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden flex items-center justify-center z-50">
+  <div class="bg-white p-6 rounded-lg shadow-lg w-96">
+    <h3 class="text-lg font-bold mb-2 text-gray-800"><i class="fas fa-edit mr-2"></i>次回付帯作業メモ</h3>
+    <p class="text-xs text-gray-500 mb-4">次回アラート発生時、メール本文にこのメモが自動挿入されます。（例：看板交換、土間塗装など）</p>
+    
+    <input type="hidden" id="memo-shop-code">
+    <input type="hidden" id="memo-machine-id">
+    
+    <textarea id="memo-text" class="w-full border rounded p-2 h-32 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ここに入力してください..."></textarea>
+    
+    <div class="flex justify-end space-x-2 mt-4">
+      <button onclick="closeMemoModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">キャンセル</button>
+      <button onclick="saveMemo()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold shadow">保存する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function managementInit() {
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(renderManagement)
+    .withFailureHandler(e => { showLoading(false); alert('取得失敗: ' + e); })
+    .getCarWashList();
+}
+
+function renderManagement(list) {
+  showLoading(false);
+  const tbody = document.getElementById('mgmt-table-body');
+  tbody.innerHTML = '';
+  
+  if(!list || list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" class="p-4 text-center">データがありません</td></tr>';
+    return;
+  }
+
+  list.sort((a, b) => {
+    if (a['店舗コード'] < b['店舗コード']) return -1;
+    if (a['店舗コード'] > b['店舗コード']) return 1;
+    return 0;
+  });
+
+  const subsidyTargetsFallback = ['徳島石井', '小松島', '紀三井寺', '坂出'];
+
+  list.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.className = "hover:bg-gray-50 transition";
+    
+    // 表示用変数を用意
+    let railStatusText = row['レールステータス'];
+    let brushStatusText = row['ブラシステータス'];
+    const bodyStatus = row['本体ステータス'];
+
+    let railColor = 'text-gray-600';
+    let brushColor = 'text-gray-600';
+    const bodyColor = bodyStatus === '交換準備' ? 'text-red-600 font-bold' : 'text-gray-600';
+
+    // ★修正: 本体が「交換準備」なら、他部品のステータスを「-」にして完全に消す
+    if (bodyStatus === '交換準備') {
+      railStatusText = '-';
+      brushStatusText = '-';
+      railColor = 'text-gray-300'; // 薄いグレーにして目立たなくする
+      brushColor = 'text-gray-300';
+    } else {
+      // 通常時の色判定（アラートなら赤くする）
+      if (railStatusText === '通知') {
+        railColor = 'text-red-600 font-bold';
+      }
+      if (brushStatusText && brushStatusText.includes('通知')) {
+        brushColor = 'text-red-600 font-bold';
+      }
+    }
+
+    let isSubsidyTarget = false;
+    if (typeof row['isSubsidy'] !== 'undefined') {
+      isSubsidyTarget = row['isSubsidy'];
+    } else {
+      isSubsidyTarget = subsidyTargetsFallback.some(target => row['店舗名'].includes(target));
+    }
+
+    let subsidyBadge = '';
+    if (isSubsidyTarget) {
+      subsidyBadge = `<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200" title="補助金対象機">補助金</span>`;
+    }
+
+    const memoContent = row['nextWorkMemo'] || "";
+    const memoIconClass = memoContent ? "text-blue-600" : "text-gray-300 hover:text-gray-500";
+    const memoTitle = memoContent ? "メモあり: " + memoContent : "メモを追加";
+
+    tr.innerHTML = `
+      <td class="p-3 font-mono text-gray-500">${row['店舗コード']}</td>
+      <td class="p-3 font-bold text-gray-700 flex items-center">${row['店舗名']}${subsidyBadge}</td>
+      <td class="p-3 text-center">${row['区別']}</td>
+      <td class="p-3 text-right font-mono font-bold">${Number(row['累計台数']).toLocaleString()}</td>
+      <td class="p-3 text-right font-mono text-blue-700 bg-blue-50">${Number(row['月平均台数'] || 0).toLocaleString()}</td>
+      <td class="p-3 ${railColor}">${railStatusText}</td>
+      <td class="p-3 ${brushColor}">${brushStatusText}</td>
+      <td class="p-3 ${bodyColor}">${bodyStatus}</td>
+      <td class="p-3 text-gray-400 text-xs">${row['本体設置日']}</td>
+      <td class="p-3 text-center">
+        <button onclick="openMemoModal('${row['店舗コード']}', '${row['区別']}', '${memoContent.replace(/\n/g, '\\n')}')" class="${memoIconClass} text-lg transition" title="${memoTitle}">
+          <i class="fas fa-sticky-note"></i>
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function openMemoModal(shopCode, machineId, currentMemo) {
+  document.getElementById('memo-shop-code').value = shopCode;
+  document.getElementById('memo-machine-id').value = machineId;
+  document.getElementById('memo-text').value = currentMemo;
+  document.getElementById('memo-modal').classList.remove('hidden');
+}
+
+function closeMemoModal() {
+  document.getElementById('memo-modal').classList.add('hidden');
+}
+
+function saveMemo() {
+  const shopCode = document.getElementById('memo-shop-code').value;
+  const machineId = document.getElementById('memo-machine-id').value;
+  const memo = document.getElementById('memo-text').value;
+  
+  showLoading(true);
+  closeMemoModal();
+  
+  google.script.run
+    .withSuccessHandler(() => {
+      showLoading(false);
+      alert('メモを保存しました。');
+      managementInit();
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('保存失敗: ' + e);
+    })
+    .saveNextWorkMemo(shopCode, machineId, memo);
+}
+</script>

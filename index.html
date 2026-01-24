@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.7); display: flex; justify-content: center; align-items: center; z-index: 50; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans">
+  <div id="loading" class="loading-overlay hidden">
+    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+  </div>
+
+  <div class="max-w-7xl mx-auto bg-white min-h-screen shadow-lg">
+    <header class="bg-blue-600 text-white p-4 flex justify-between items-center">
+      <h1 class="text-xl font-bold"><i class="fas fa-car-side mr-2"></i>洗車機管理システム</h1>
+      <div class="text-sm">V2.5 (Fast Mode)</div>
+    </header>
+
+    <nav class="flex border-b overflow-x-auto bg-white sticky top-0 z-10">
+      <button onclick="navigate('progress')" id="nav-progress" class="nav-btn px-6 py-3 font-medium hover:bg-gray-50 whitespace-nowrap border-b-2 border-transparent text-gray-600">
+        <i class="fas fa-tasks mr-2"></i>案件管理
+      </button>
+      <button onclick="navigate('dashboard')" id="nav-dashboard" class="nav-btn px-6 py-3 font-medium hover:bg-gray-50 whitespace-nowrap border-b-2 border-transparent text-gray-600">
+        <i class="fas fa-chart-line mr-2"></i>ダッシュボード
+      </button>
+      <button onclick="navigate('management')" id="nav-management" class="nav-btn px-6 py-3 font-medium hover:bg-gray-50 whitespace-nowrap border-b-2 border-transparent text-gray-600">
+        <i class="fas fa-list mr-2"></i>洗車機一覧
+      </button>
+      <button onclick="navigate('monthly')" id="nav-monthly" class="nav-btn px-6 py-3 font-medium hover:bg-gray-50 whitespace-nowrap border-b-2 border-transparent text-gray-600">
+        <i class="fas fa-edit mr-2"></i>月次更新
+      </button>
+      <button onclick="navigate('email')" id="nav-email" class="nav-btn px-6 py-3 font-medium hover:bg-gray-50 whitespace-nowrap border-b-2 border-transparent text-gray-600">
+        <i class="fas fa-envelope mr-2"></i>メール
+      </button>
+    </nav>
+
+    <div class="p-6">
+      <div id="view-progress" class="view-section"><?!= include('project-progress.html'); ?></div>
+      <div id="view-dashboard" class="view-section hidden"><?!= include('dashboard.html'); ?></div>
+      <div id="view-management" class="view-section hidden"><?!= include('carwash-management.html'); ?></div>
+      <div id="view-monthly" class="view-section hidden"><?!= include('monthly-update.html'); ?></div>
+      <div id="view-email" class="view-section hidden"><?!= include('email-draft.html'); ?></div>
+      <div id="view-complete" class="view-section hidden"></div>
+      <div id="view-schedule" class="view-section hidden"></div>
+    </div>
+  </div>
+
+  <script>
+    // ★グローバルキャッシュオブジェクト
+    window.g_cache = {};
+
+    function navigate(viewId) {
+      document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.nav-btn').forEach(el => {
+        el.classList.remove('border-blue-600', 'text-blue-600');
+        el.classList.add('border-transparent', 'text-gray-600');
+      });
+
+      const targetView = document.getElementById('view-' + viewId);
+      if (targetView) targetView.classList.remove('hidden');
+      
+      const btn = document.getElementById('nav-' + viewId);
+      if (btn) {
+        btn.classList.remove('border-transparent', 'text-gray-600');
+        btn.classList.add('border-blue-600', 'text-blue-600');
+      }
+
+      // キャッシュがあればそれを使って即時表示（forceRefresh = false）
+      if (viewId === 'dashboard' && window.dashboardInit) dashboardInit(false);
+      if (viewId === 'progress' && window.progressInit) progressInit(false);
+      if (viewId === 'management' && window.managementInit) managementInit(false);
+      if (viewId === 'monthly' && window.loadMonthlyInput) loadMonthlyInput(false);
+      if (viewId === 'email' && window.emailInit) emailInit(false);
+    }
+
+    function showLoading(show) {
+      document.getElementById('loading').classList.toggle('hidden', !show);
+    }
+
+    // 更新処理などでキャッシュをクリアしたい時に呼ぶ
+    function clearCache(key) {
+      if (key) delete window.g_cache[key];
+      else window.g_cache = {};
+    }
+
+    navigate('progress');
+  </script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+<!-- Schedule View -->
+<div class="space-y-8">
+  
+  <!-- ★追加: 発注済み案件からの登録セクション -->
+  <div id="ready-to-schedule-section" class="hidden">
+    <div class="bg-green-50 p-4 border-l-4 border-green-500 mb-4">
+      <p class="text-green-800 font-bold"><i class="fas fa-clock mr-2"></i>日程登録待ち（発注済の案件）</p>
+      <p class="text-sm text-green-700">発注が完了している案件です。作業予定日を決定して登録してください。</p>
+    </div>
+    <div id="ready-project-list" class="space-y-3 mb-8"></div>
+  </div>
+
+  <!-- 新規登録セクション -->
+  <div>
+    <div class="bg-yellow-50 p-4 border-l-4 border-yellow-400 mb-4">
+      <p class="text-yellow-800 font-bold"><i class="fas fa-calendar-plus mr-2"></i>新規交換スケジュール登録</p>
+      <p class="text-sm text-yellow-700">ステータス異常が出ている（まだ案件化されていない）洗車機に対し、交換予定日を設定します。</p>
+    </div>
+
+    <div id="schedule-target-list" class="space-y-3">
+      <!-- Targets loaded here -->
+    </div>
+  </div>
+
+  <!-- 登録済み確認・取り消しセクション -->
+  <div class="border-t pt-6">
+    <h3 class="text-lg font-bold text-gray-700 mb-3"><i class="fas fa-list-alt mr-2"></i>登録済み（作業待ち）の予定</h3>
+    <div class="bg-white rounded border overflow-hidden">
+      <table class="w-full text-sm text-left">
+        <thead class="bg-gray-100 text-gray-700">
+          <tr>
+            <th class="p-3">店舗名 / 機種</th>
+            <th class="p-3">交換部品</th>
+            <th class="p-3">予定日</th>
+            <th class="p-3 text-right">操作</th>
+          </tr>
+        </thead>
+        <tbody id="schedule-registered-list" class="divide-y">
+          <tr><td colspan="4" class="p-4 text-center text-gray-500">読み込み中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let projectsCache = [];
+
+function scheduleInit() {
+  showLoading(true);
+  
+  // ダッシュボードと同じデータソースから案件情報を取得
+  google.script.run
+    .withSuccessHandler(data => {
+      // 発注済の案件を抽出
+      const readyProjects = data.projects.filter(p => p.status === '発注済');
+      renderReadyProjects(readyProjects);
+      
+      // 新規候補の取得（Code.gs側で進行中は除外される）
+      google.script.run
+        .withSuccessHandler(renderScheduleTargets)
+        .getExchangeTargetsForUI();
+        
+      // 登録済みリスト
+      loadRegisteredSchedules();
+    })
+    .getDashboardData(); // DashboardDataに含まれるprojectsを利用
+}
+
+function loadRegisteredSchedules() {
+  google.script.run
+    .withSuccessHandler(renderRegisteredList)
+    .getScheduledTasksForCompletion();
+}
+
+function renderReadyProjects(list) {
+  const container = document.getElementById('ready-project-list');
+  const section = document.getElementById('ready-to-schedule-section');
+  container.innerHTML = '';
+  
+  if (list.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+  
+  section.classList.remove('hidden');
+
+  list.forEach(p => {
+    const card = document.createElement('div');
+    card.className = "bg-white p-4 rounded shadow border-l-4 border-green-400 flex flex-col md:flex-row justify-between items-center gap-4";
+    
+    card.innerHTML = `
+      <div>
+        <div class="font-bold text-lg text-gray-800">${p.shopName}</div>
+        <div class="text-sm text-gray-600">
+          機種: <span class="font-mono bg-gray-100 px-1 rounded">${p.machineId}</span> (${p.shopCode})
+        </div>
+        <div class="text-sm font-bold text-green-600 mt-1">案件: ${p.part}</div>
+      </div>
+      <div class="flex items-end gap-2 bg-gray-50 p-2 rounded">
+        <div>
+          <label class="text-xs block text-gray-500 font-bold mb-1">予定日</label>
+          <input type="date" id="date-proj-${p.id}" class="border rounded p-1 text-sm bg-white">
+        </div>
+        <button onclick="registerFromProject('${p.id}', '${p.shopCode}', '${p.machineId}', '${p.part}')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm whitespace-nowrap font-bold shadow-sm">
+          決定
+        </button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function renderScheduleTargets(list) {
+  showLoading(false); // 全ての読み込み完了
+  const container = document.getElementById('schedule-target-list');
+  container.innerHTML = '';
+  
+  if (list.length === 0) {
+    container.innerHTML = '<div class="p-4 bg-white text-center text-gray-500 rounded border">現在、新規の交換候補はありません</div>';
+    return;
+  }
+
+  list.forEach(item => {
+    const card = document.createElement('div');
+    card.className = "bg-white p-4 rounded shadow border transition hover:shadow-md";
+    
+    const options = item.allExchangeParts.map(p => `<option value="${p}">${p}</option>`).join('');
+    
+    card.innerHTML = `
+      <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <div class="font-bold text-lg text-gray-800">${item.shopName}</div>
+          <div class="text-sm text-gray-600">
+            機種: <span class="font-mono bg-gray-100 px-1 rounded">${item.machineIdentifier}</span> 
+            <span class="text-xs text-gray-400 ml-1">(${item.shopCode})</span>
+          </div>
+          <div class="text-xs text-red-500 mt-1 font-bold">推奨: ${item.exchangeTargets}</div>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2 items-end bg-gray-50 p-2 rounded">
+          <div>
+            <label class="text-xs block text-gray-500 font-bold mb-1">交換部品</label>
+            <select id="part-${item.shopCode}-${item.machineIdentifier}" class="border rounded p-1 text-sm bg-white">
+              ${options}
+            </select>
+          </div>
+          <div>
+            <label class="text-xs block text-gray-500 font-bold mb-1">予定日</label>
+            <input type="date" id="date-${item.shopCode}-${item.machineIdentifier}" class="border rounded p-1 text-sm bg-white">
+          </div>
+          <button onclick="registerSchedule('${item.shopCode}', '${item.machineIdentifier}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm whitespace-nowrap font-bold shadow-sm">
+            登録
+          </button>
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function renderRegisteredList(list) {
+  const tbody = document.getElementById('schedule-registered-list');
+  tbody.innerHTML = '';
+
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">登録済みの未完了予定はありません</td></tr>';
+    return;
+  }
+
+  list.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="p-3">
+        <div class="font-bold text-lg text-blue-900">${item['店舗名']}</div>
+        <div class="text-xs text-gray-500">機種: ${item['区別']} / CD: ${item['店舗コード']}</div>
+      </td>
+      <td class="p-3 font-bold">${item['部品名']}</td>
+      <td class="p-3 font-mono">${item['予定日']}</td>
+      <td class="p-3 text-right">
+        <button onclick="cancelScheduleItem(${item.rowNumber}, '${item.eventId}')" class="text-red-500 hover:text-red-700 text-sm font-bold border border-red-200 hover:bg-red-50 px-3 py-1 rounded transition">
+          <i class="fas fa-trash-alt mr-1"></i>取り消し
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// 既存: 新規登録
+function registerSchedule(shop, machine) {
+  const part = document.getElementById(`part-${shop}-${machine}`).value;
+  const date = document.getElementById(`date-${shop}-${machine}`).value;
+  
+  if(!date) { alert('日付を選択してください'); return; }
+  
+  showLoading(true);
+  const notes = "Webアプリからの登録(いきなり日程確定)";
+  
+  google.script.run
+    .withSuccessHandler(() => {
+      alert('スケジュール登録完了');
+      showLoading(false);
+      scheduleInit();
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('登録失敗: ' + e);
+    })
+    .createScheduleAndRecord(shop, machine, part, date, notes);
+}
+
+// ★追加: 発注済案件からの登録
+function registerFromProject(id, shop, machine, part) {
+  const date = document.getElementById(`date-proj-${id}`).value;
+  if(!date) { alert('予定日を選択してください'); return; }
+
+  showLoading(true);
+  const notes = "案件管理からの日程確定";
+
+  // IDを渡して更新モードで呼ぶ
+  google.script.run
+    .withSuccessHandler(() => {
+      alert('日程を確定し、カレンダーに登録しました');
+      showLoading(false);
+      scheduleInit();
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('登録失敗: ' + e);
+    })
+    .createScheduleAndRecord(shop, machine, part, date, notes, id);
+}
+
+function cancelScheduleItem(rowId, eventId) {
+  if(!confirm('この予定を取り消しますか？\n（Googleカレンダーの予定も削除されます）')) return;
+
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(() => {
+      alert('予定を取り消しました');
+      showLoading(false);
+      scheduleInit();
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('取り消し失敗: ' + e);
+    })
+    .cancelSchedule(rowId, eventId);
+}
+</script>
