@@ -118,7 +118,10 @@ function dashboardInit(forceRefresh = false) {
       window.g_cache.dashboard = data; // キャッシュ保存
       renderDashboard(data);
     })
-    .withFailureHandler(e => alert('読み込みエラー: ' + e))
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('読み込みエラー: ' + e);
+    })
     .getDashboardData();
 }
 
@@ -503,10 +506,19 @@ function confirmDashboardPartsSelection() {
       .registerSelectedProjects(selectedData);
   } else if (dashCurrentActionType === 'draft') {
     // メール下書き作成
+    // タイムアウト処理を追加（30秒）
+    const timeoutId = setTimeout(() => {
+      showLoading(false);
+      alert('タイムアウト: 処理に時間がかかっています。GASのログを確認してください。');
+      console.error('メール下書き作成タイムアウト');
+    }, 30000);
+    
     google.script.run
       .withSuccessHandler(result => {
+        clearTimeout(timeoutId);
         showLoading(false);
-        alert(`メール下書きを作成しました。\n登録件数: ${result.registeredCount}件`);
+        const draftCount = result.draftCount || 0;
+        alert(`メール下書きを作成しました。\n登録件数: ${result.registeredCount}件\nメール下書き: ${draftCount}件`);
         window.clearCache('dashboard');
         window.clearCache('progress');
         setTimeout(() => {
@@ -515,11 +527,16 @@ function confirmDashboardPartsSelection() {
         }, 500);
       })
       .withFailureHandler(e => {
+        clearTimeout(timeoutId);
         showLoading(false);
-        alert('エラー: ' + e);
+        const errorMsg = e && e.message ? e.message : String(e);
+        alert('エラー: ' + errorMsg + '\n\n詳細はブラウザのコンソールを確認してください。');
         console.error('メール下書き作成エラー:', e);
       })
       .createDraftsForSelected(selectedData);
+  } else {
+    showLoading(false);
+    alert('不明なアクションタイプです。');
   }
 }
 function updateStatus(id, newStatus) {
