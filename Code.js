@@ -85,16 +85,15 @@ function getDashboardData() {
     const isBodyExchangeInProgress = ignoreActions.includes(keyPrefix + '本体');
 
     if (shopsWithBodyExchange.has(shopCode)) {
-      if (m['本体ステータス'] === config.STATUS.PREPARE) {
-        const maskedItem = { ...m };
-        maskedItem['レールステータス'] = config.STATUS.NORMAL; 
-        maskedItem['ブラシステータス'] = '対象外';
-        const subsidyCheck = checkSubsidyAlert(m['店舗名'], m['本体設置日']);
-        if (subsidyCheck) maskedItem['subsidyAlert'] = subsidyCheck.message;
-        notices.push(maskedItem);
-      } else {
-        normal++;
-      }
+      // 店舗内の1台でも本体が「交換準備」なら、その店舗の全機を本体交換対象として表示
+      const maskedItem = { ...m };
+      maskedItem['レールステータス'] = config.STATUS.NORMAL; 
+      maskedItem['ブラシステータス'] = '対象外';
+      // 本体ステータスを「交換準備」に強制設定（店舗単位で全機交換のため）
+      maskedItem['本体ステータス'] = config.STATUS.PREPARE;
+      const subsidyCheck = checkSubsidyAlert(m['店舗名'], m['本体設置日']);
+      if (subsidyCheck) maskedItem['subsidyAlert'] = subsidyCheck.message;
+      notices.push(maskedItem);
     } else {
       let isRailAlert = m['レールステータス'] === config.STATUS.NOTICE && !ignoreActions.includes(keyPrefix + 'レール車輪');
       if (isBodyExchangeInProgress) isRailAlert = false;
@@ -219,7 +218,8 @@ function getExchangeTargetsForUI() {
     const isBodyExchangeInProgress = ignoreActions.includes(keyPrefix + '本体');
 
     if (shopsWithBodyExchange.has(shopCode)) {
-      if (m['本体ステータス'] === config.STATUS.PREPARE && !isBodyExchangeInProgress) {
+      // 店舗内の1台でも本体が「交換準備」なら、その店舗の全機を本体交換対象とする
+      if (!isBodyExchangeInProgress) {
         parts.push('本体');
       }
     } else {
