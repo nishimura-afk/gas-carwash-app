@@ -260,36 +260,57 @@ function registerProject(s, m, t, status) {
  * @returns {Object} { registeredCount: number }
  */
 function registerSelectedProjects(selectedData) {
-  const config = getConfig();
-  const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
-  const scheduleData = sheet.getDataRange().getValues();
-  
-  // 既存のアクティブな案件を取得（重複登録防止）
-  const activeProjects = new Set();
-  if (scheduleData.length > 1) {
-    scheduleData.slice(1).forEach(row => {
-      if (row[5] !== config.PROJECT_STATUS.COMPLETED && row[5] !== config.PROJECT_STATUS.CANCELLED) {
-        activeProjects.add(`${row[1]}_${row[2]}_${row[3]}`);
+  try {
+    if (!selectedData || !Array.isArray(selectedData) || selectedData.length === 0) {
+      throw new Error('選択データが無効です');
+    }
+    
+    const config = getConfig();
+    const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
+    const scheduleData = sheet.getDataRange().getValues();
+    
+    // 既存のアクティブな案件を取得（重複登録防止）
+    const activeProjects = new Set();
+    if (scheduleData.length > 1) {
+      scheduleData.slice(1).forEach(row => {
+        if (row[5] !== config.PROJECT_STATUS.COMPLETED && row[5] !== config.PROJECT_STATUS.CANCELLED) {
+          activeProjects.add(`${row[1]}_${row[2]}_${row[3]}`);
+        }
+      });
+    }
+    
+    let registeredCount = 0;
+    
+    selectedData.forEach(item => {
+      if (!item.shopCode || !item.machineId || !item.parts || !Array.isArray(item.parts)) {
+        console.warn('無効なデータ項目をスキップ:', item);
+        return;
       }
-    });
-  }
-  
-  let registeredCount = 0;
-  
-  selectedData.forEach(item => {
-    item.parts.forEach(part => {
-      const key = `${item.shopCode}_${item.machineId}_${part}`;
       
-      // 重複チェック
-      if (!activeProjects.has(key)) {
-        registerProject(item.shopCode, item.machineId, part, config.PROJECT_STATUS.ESTIMATE_REQ);
-        activeProjects.add(key); // 同じバッチ内での重複も防止
-        registeredCount++;
-      }
+      item.parts.forEach(part => {
+        if (!part) return;
+        
+        const key = `${item.shopCode}_${item.machineId}_${part}`;
+        
+        // 重複チェック
+        if (!activeProjects.has(key)) {
+          try {
+            registerProject(item.shopCode, item.machineId, part, config.PROJECT_STATUS.ESTIMATE_REQ);
+            activeProjects.add(key); // 同じバッチ内での重複も防止
+            registeredCount++;
+          } catch (e) {
+            console.error('案件登録エラー:', e, item, part);
+            throw new Error(`案件登録に失敗しました: ${item.shopCode}_${item.machineId}_${part} - ${e.message}`);
+          }
+        }
+      });
     });
-  });
-  
-  return { registeredCount: registeredCount };
+    
+    return { registeredCount: registeredCount };
+  } catch (e) {
+    console.error('registerSelectedProjects エラー:', e);
+    throw e;
+  }
 }
 
 /**
@@ -298,33 +319,42 @@ function registerSelectedProjects(selectedData) {
  * @returns {Object} { registeredCount: number, draftCount: number }
  */
 function createDraftsForSelected(selectedData) {
-  const config = getConfig();
-  const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
-  const scheduleData = sheet.getDataRange().getValues();
-  
-  // 既存のアクティブな案件を取得（重複登録防止）
-  const activeProjects = new Set();
-  if (scheduleData.length > 1) {
-    scheduleData.slice(1).forEach(row => {
-      if (row[5] !== config.PROJECT_STATUS.COMPLETED && row[5] !== config.PROJECT_STATUS.CANCELLED) {
-        activeProjects.add(`${row[1]}_${row[2]}_${row[3]}`);
+  try {
+    if (!selectedData || !Array.isArray(selectedData) || selectedData.length === 0) {
+      throw new Error('選択データが無効です');
+    }
+    
+    const config = getConfig();
+    const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
+    const scheduleData = sheet.getDataRange().getValues();
+    
+    // 既存のアクティブな案件を取得（重複登録防止）
+    const activeProjects = new Set();
+    if (scheduleData.length > 1) {
+      scheduleData.slice(1).forEach(row => {
+        if (row[5] !== config.PROJECT_STATUS.COMPLETED && row[5] !== config.PROJECT_STATUS.CANCELLED) {
+          activeProjects.add(`${row[1]}_${row[2]}_${row[3]}`);
+        }
+      });
+    }
+    
+    // 宛先定義
+    const RECIPIENT_DAIFUKU = "nishimura@selfix.jp"; // 本来は木村様宛
+    const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // 本来は松永様宛
+    
+    // 業者別の依頼事項リスト
+    const daifukuItems = [];
+    const beautyItems = [];
+    
+    let registeredCount = 0;
+    
+    // 店舗ごとにグループ化
+    const shopGroups = {};
+    selectedData.forEach(item => {
+      if (!item.shopCode || !item.shopName || !item.machineId || !item.parts || !Array.isArray(item.parts)) {
+        console.warn('無効なデータ項目をスキップ:', item);
+        return;
       }
-    });
-  }
-  
-  // 宛先定義
-  const RECIPIENT_DAIFUKU = "nishimura@selfix.jp"; // 本来は木村様宛
-  const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // 本来は松永様宛
-  
-  // 業者別の依頼事項リスト
-  const daifukuItems = [];
-  const beautyItems = [];
-  
-  let registeredCount = 0;
-  
-  // 店舗ごとにグループ化
-  const shopGroups = {};
-  selectedData.forEach(item => {
     const shopCode = item.shopCode;
     if (!shopGroups[shopCode]) {
       shopGroups[shopCode] = {
@@ -343,16 +373,23 @@ function createDraftsForSelected(selectedData) {
       }
     }
     
-    // 各機械の部品を処理
-    item.parts.forEach(part => {
-      const key = `${item.shopCode}_${item.machineId}_${part}`;
-      
-      // 重複チェック
-      if (!activeProjects.has(key)) {
-        // 案件登録
-        registerProject(item.shopCode, item.machineId, part, config.PROJECT_STATUS.ESTIMATE_REQ);
-        activeProjects.add(key);
-        registeredCount++;
+      // 各機械の部品を処理
+      item.parts.forEach(part => {
+        if (!part) return;
+        
+        const key = `${item.shopCode}_${item.machineId}_${part}`;
+        
+        // 重複チェック
+        if (!activeProjects.has(key)) {
+          try {
+            // 案件登録
+            registerProject(item.shopCode, item.machineId, part, config.PROJECT_STATUS.ESTIMATE_REQ);
+            activeProjects.add(key);
+            registeredCount++;
+          } catch (e) {
+            console.error('案件登録エラー:', e, item, part);
+            throw new Error(`案件登録に失敗しました: ${item.shopCode}_${item.machineId}_${part} - ${e.message}`);
+          }
         
         // メール項目の追加
         let displayPartName = part;
@@ -409,24 +446,38 @@ function createDraftsForSelected(selectedData) {
     });
   });
   
-  // メール下書き作成（ダイフク：木村様）
-  let draftCount = 0;
-  if (daifukuItems.length > 0) {
-    const subject = `【見積依頼】洗車機関連案件のお見積り依頼（${daifukuItems.length}件）`;
-    const body = generateConsolidatedTemplate(daifukuItems, '木村様');
-    GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
-    draftCount++;
+    // メール下書き作成（ダイフク：木村様）
+    let draftCount = 0;
+    if (daifukuItems.length > 0) {
+      try {
+        const subject = `【見積依頼】洗車機関連案件のお見積り依頼（${daifukuItems.length}件）`;
+        const body = generateConsolidatedTemplate(daifukuItems, '木村様');
+        GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
+        draftCount++;
+      } catch (e) {
+        console.error('ダイフクメール作成エラー:', e);
+        throw new Error(`メール下書き作成に失敗しました（ダイフク）: ${e.message}`);
+      }
+    }
+    
+    // メール下書き作成（ビユーテー：松永様）
+    if (beautyItems.length > 0) {
+      try {
+        const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
+        const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
+        GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
+        draftCount++;
+      } catch (e) {
+        console.error('ビユーテーメール作成エラー:', e);
+        throw new Error(`メール下書き作成に失敗しました（ビユーテー）: ${e.message}`);
+      }
+    }
+    
+    return { registeredCount: registeredCount, draftCount: draftCount };
+  } catch (e) {
+    console.error('createDraftsForSelected エラー:', e);
+    throw e;
   }
-  
-  // メール下書き作成（ビユーテー：松永様）
-  if (beautyItems.length > 0) {
-    const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
-    const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
-    GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
-    draftCount++;
-  }
-  
-  return { registeredCount: registeredCount, draftCount: draftCount };
 }
 
 function createScheduleAndRecord(s, m, t, d, n, existingId = null) { 

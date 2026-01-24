@@ -436,6 +436,10 @@ function renderPartsSelectionList() {
 }
 
 function updateMachineParts(machineIndex, partId, isChecked) {
+  if (!selectedMachinesData || !selectedMachinesData[machineIndex]) {
+    console.error('updateMachineParts: 機械データが見つかりません', machineIndex);
+    return;
+  }
   const machine = selectedMachinesData[machineIndex];
   if (isChecked) {
     if (!machine.selectedParts.includes(partId)) {
@@ -457,7 +461,12 @@ function closePartsSelectionModal() {
 
 function confirmPartsSelection() {
   // 選択された部品があるかチェック
-  const hasSelection = selectedMachinesData.some(m => m.selectedParts.length > 0);
+  if (!selectedMachinesData || selectedMachinesData.length === 0) {
+    alert('機械が選択されていません。');
+    return;
+  }
+  
+  const hasSelection = selectedMachinesData.some(m => m && m.selectedParts && m.selectedParts.length > 0);
   if (!hasSelection) {
     alert('少なくとも1つの部品を選択してください。');
     return;
@@ -466,13 +475,13 @@ function confirmPartsSelection() {
   // 選択データを整形
   const formattedData = [];
   selectedMachinesData.forEach(machine => {
-    if (machine.selectedParts.length > 0) {
+    if (machine && machine.selectedParts && machine.selectedParts.length > 0) {
       formattedData.push({
         shopCode: machine.shopCode,
         shopName: machine.shopName,
         machineId: machine.machineId,
         parts: machine.selectedParts,
-        nextWorkMemo: machine.nextWorkMemo
+        nextWorkMemo: machine.nextWorkMemo || ''
       });
     }
   });
@@ -482,35 +491,59 @@ function confirmPartsSelection() {
     return;
   }
   
+  console.log('送信データ:', formattedData);
+  console.log('アクションタイプ:', currentActionType);
+  
   closePartsSelectionModal();
   showLoading(true);
   
-  if (currentActionType === 'register') {
-    // 案件登録のみ
-    google.script.run
-      .withSuccessHandler((result) => {
-        showLoading(false);
-        alert(`${result.registeredCount}件の案件を登録しました。`);
-        managementInit();
-      })
-      .withFailureHandler(e => {
-        showLoading(false);
-        alert('登録失敗: ' + e);
-      })
-      .registerSelectedProjects(formattedData);
-  } else if (currentActionType === 'draft') {
-    // メール作成 + 案件登録
-    google.script.run
-      .withSuccessHandler((result) => {
-        showLoading(false);
-        alert(`${result.registeredCount}件の案件を登録し、${result.draftCount}件のメール下書きを作成しました。`);
-        managementInit();
-      })
-      .withFailureHandler(e => {
-        showLoading(false);
-        alert('処理失敗: ' + e);
-      })
-      .createDraftsForSelected(formattedData);
+  try {
+    if (currentActionType === 'register') {
+      // 案件登録のみ
+      google.script.run
+        .withSuccessHandler((result) => {
+          showLoading(false);
+          if (result && result.registeredCount !== undefined) {
+            alert(`${result.registeredCount}件の案件を登録しました。`);
+          } else {
+            alert('案件を登録しました。');
+          }
+          managementInit();
+        })
+        .withFailureHandler(e => {
+          showLoading(false);
+          console.error('登録エラー:', e);
+          const errorMsg = e && e.message ? e.message : String(e);
+          alert('登録失敗: ' + errorMsg + '\n\n詳細はブラウザのコンソールを確認してください。');
+        })
+        .registerSelectedProjects(formattedData);
+    } else if (currentActionType === 'draft') {
+      // メール作成 + 案件登録
+      google.script.run
+        .withSuccessHandler((result) => {
+          showLoading(false);
+          if (result && result.registeredCount !== undefined && result.draftCount !== undefined) {
+            alert(`${result.registeredCount}件の案件を登録し、${result.draftCount}件のメール下書きを作成しました。`);
+          } else {
+            alert('案件を登録し、メール下書きを作成しました。');
+          }
+          managementInit();
+        })
+        .withFailureHandler(e => {
+          showLoading(false);
+          console.error('処理エラー:', e);
+          const errorMsg = e && e.message ? e.message : String(e);
+          alert('処理失敗: ' + errorMsg + '\n\n詳細はブラウザのコンソールを確認してください。');
+        })
+        .createDraftsForSelected(formattedData);
+    } else {
+      showLoading(false);
+      alert('不明なアクションタイプです。');
+    }
+  } catch (error) {
+    showLoading(false);
+    console.error('予期しないエラー:', error);
+    alert('予期しないエラーが発生しました: ' + error.message);
   }
 }
 </script>
