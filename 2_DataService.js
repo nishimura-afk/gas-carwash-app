@@ -75,7 +75,7 @@ function calculateExchangeStatus(masterItem, currentAccumulatedCount, avgMonthly
   const currentMonth = today.getMonth() + 1; // 1-12
   
   if (currentMonth === 1) {
-    // 1月の場合：15ヶ月後の予測で判定
+    // 1月の場合：12ヶ月後の予測で判定
     const forecastCount = countSinceBodyExchange + (avgMonthlyCount * criteria.MACHINE_BODY.FORECAST_MONTHS);
     if (forecastCount >= criteria.MACHINE_BODY.THRESHOLD) {
       bodyStatus = status.PREPARE;
