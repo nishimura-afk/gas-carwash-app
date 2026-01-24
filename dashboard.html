@@ -45,13 +45,26 @@
   </div>
 
   <div class="bg-white rounded border shadow-sm">
-    <div class="p-4 border-b bg-gray-50 font-bold flex items-center">
-      <i class="fas fa-tools text-gray-500 mr-2"></i>対応が必要な店舗一覧
+    <div class="p-4 border-b bg-gray-50 font-bold flex items-center justify-between">
+      <div class="flex items-center">
+        <i class="fas fa-tools text-gray-500 mr-2"></i>対応が必要な店舗一覧
+      </div>
+      <div class="flex space-x-2">
+        <button onclick="openDashboardPartsModal('register')" id="dash-register-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          <i class="fas fa-clipboard-list mr-1"></i>選択した機械を案件リストに登録
+        </button>
+        <button onclick="openDashboardPartsModal('draft')" id="dash-draft-btn" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          <i class="fas fa-envelope mr-1"></i>選択した機械のメール下書き作成
+        </button>
+      </div>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm text-left">
         <thead class="bg-gray-100 text-gray-700">
           <tr>
+            <th class="p-3 w-12">
+              <input type="checkbox" id="dash-select-all" onchange="toggleAllDashboardCheckboxes()" class="cursor-pointer">
+            </th>
             <th class="p-3">店舗名 (区別)</th>
             <th class="p-3 text-right">累計台数</th>
             <th class="p-3">レール</th>
@@ -60,9 +73,32 @@
           </tr>
         </thead>
         <tbody id="dash-table-body" class="divide-y">
-          <tr><td colspan="5" class="p-4 text-center text-gray-500">読み込み中...</td></tr>
+          <tr><td colspan="6" class="p-4 text-center text-gray-500">読み込み中...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- 部品選択モーダル（ダッシュボード用） -->
+  <div id="dash-parts-selection-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+      <h3 class="text-lg font-bold mb-4 text-gray-800">
+        <i class="fas fa-cog mr-2"></i>対象部品の選択
+      </h3>
+      <p class="text-xs text-gray-500 mb-4">各機械について、対象となる部品を選択してください。</p>
+      
+      <div id="dash-parts-selection-warning" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-3 mb-4">
+        <p class="text-yellow-800 text-sm font-bold"><i class="fas fa-exclamation-triangle mr-2"></i>補助金対象店舗が含まれています。返金義務が発生する可能性があります。</p>
+      </div>
+      
+      <div id="dash-parts-selection-list" class="space-y-3 mb-4">
+        <!-- 動的に生成 -->
+      </div>
+      
+      <div class="flex justify-end space-x-2 mt-6">
+        <button onclick="closeDashboardPartsModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">キャンセル</button>
+        <button onclick="confirmDashboardPartsSelection()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold shadow">確定</button>
+      </div>
     </div>
   </div>
 </div>
@@ -130,29 +166,361 @@ function renderProjects(projects) {
     tbody.appendChild(tr);
   });
 }
+let dashSelectedMachines = [];
+let dashCurrentActionType = null;
+
 function renderNoticeList(list) {
   const tbody = document.getElementById('dash-table-body');
   tbody.innerHTML = '';
+  dashSelectedMachines = [];
+  
   if (list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-green-600 font-bold">現在、対応が必要な端末はありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-green-600 font-bold">現在、対応が必要な端末はありません</td></tr>';
+    updateDashboardButtons();
     return;
   }
-  list.forEach(item => {
+  
+  list.forEach((item, index) => {
     const tr = document.createElement('tr');
     tr.className = "hover:bg-red-50 transition";
+    tr.dataset.index = index;
+    tr.dataset.shopCode = item['店舗コード'];
+    tr.dataset.machineId = item['区別'];
+    
     let alertMsg = '';
     if (item.subsidyAlert) {
       alertMsg = `<div class="text-xs text-red-600 font-bold mt-1 bg-red-100 p-1 rounded"><i class="fas fa-exclamation-circle mr-1"></i>${item.subsidyAlert}</div>`;
     }
+    
+    const isBodyExchange = item['区別'] === '全機' || item['本体ステータス'] === '交換準備';
+    const isRailAlert = item['レールステータス'] === '通知';
+    const isBrushAlert = item['ブラシステータス'] && item['ブラシステータス'].includes('通知');
+    
     tr.innerHTML = `
+      <td class="p-3">
+        <input type="checkbox" class="dash-machine-checkbox" data-index="${index}" onchange="toggleDashboardCheckbox(${index})">
+      </td>
       <td class="p-3"><div class="font-bold">${item['店舗名']}</div><div class="text-xs text-gray-500">機番: ${item['区別']}</div>${alertMsg}</td>
       <td class="p-3 text-right font-mono font-bold text-gray-700">${Number(item['累計台数']).toLocaleString()}</td>
-      <td class="p-3 font-bold ${item['レールステータス'] !== '正常' ? 'text-red-600' : 'text-gray-300'}">${item['レールステータス']}</td>
-      <td class="p-3 font-bold ${item['ブラシステータス'].includes('通知') ? 'text-red-600' : 'text-gray-300'}">${item['ブラシステータス']}</td>
-      <td class="p-3 font-bold ${item['本体ステータス'] !== '正常' ? 'text-red-600' : 'text-gray-300'}">${item['本体ステータス']}</td>
+      <td class="p-3 font-bold ${isRailAlert ? 'text-red-600' : 'text-gray-300'}">${item['レールステータス']}</td>
+      <td class="p-3 font-bold ${isBrushAlert ? 'text-red-600' : 'text-gray-300'}">${item['ブラシステータス']}</td>
+      <td class="p-3 font-bold ${isBodyExchange ? 'text-red-600' : 'text-gray-300'}">${item['本体ステータス']}</td>
     `;
     tbody.appendChild(tr);
+    
+    // データを保存
+    dashSelectedMachines.push({
+      shopCode: item['店舗コード'],
+      shopName: item['店舗名'],
+      machineId: item['区別'],
+      railStatus: item['レールステータス'],
+      brushStatus: item['ブラシステータス'],
+      bodyStatus: item['本体ステータス'],
+      isSubsidy: item.subsidyAlert ? true : false,
+      nextWorkMemo: item['nextWorkMemo'] || '',
+      selectedParts: []
+    });
   });
+  
+  updateDashboardButtons();
+}
+
+function toggleDashboardCheckbox(index) {
+  const checkbox = document.querySelector(`.dash-machine-checkbox[data-index="${index}"]`);
+  if (!checkbox) return;
+  
+  const machine = dashSelectedMachines[index];
+  if (!machine) return;
+  
+  // 選択状態を更新（実際のチェックボックス状態は自動で反映される）
+  updateDashboardButtons();
+}
+
+function toggleAllDashboardCheckboxes() {
+  const selectAll = document.getElementById('dash-select-all');
+  const checkboxes = document.querySelectorAll('.dash-machine-checkbox');
+  
+  checkboxes.forEach(cb => {
+    cb.checked = selectAll.checked;
+  });
+  
+  updateDashboardButtons();
+}
+
+function updateDashboardButtons() {
+  const checkboxes = document.querySelectorAll('.dash-machine-checkbox');
+  const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+  
+  const registerBtn = document.getElementById('dash-register-btn');
+  const draftBtn = document.getElementById('dash-draft-btn');
+  
+  if (checkedCount > 0) {
+    registerBtn.disabled = false;
+    draftBtn.disabled = false;
+  } else {
+    registerBtn.disabled = true;
+    draftBtn.disabled = true;
+  }
+}
+
+function openDashboardPartsModal(actionType) {
+  dashCurrentActionType = actionType;
+  
+  // 選択された機械を取得
+  const checkboxes = document.querySelectorAll('.dash-machine-checkbox');
+  const selectedIndices = Array.from(checkboxes)
+    .map((cb, idx) => cb.checked ? idx : -1)
+    .filter(idx => idx !== -1);
+  
+  if (selectedIndices.length === 0) {
+    alert('機械を選択してください');
+    return;
+  }
+  
+  const selectedData = selectedIndices.map(idx => dashSelectedMachines[idx]);
+  
+  // 部品選択モーダルを開く
+  openDashboardPartsSelectionModal(selectedData);
+}
+
+function openDashboardPartsSelectionModal(selectedData) {
+  // 補助金対象店舗の警告を表示
+  const hasSubsidyTarget = selectedData.some(m => m.isSubsidy);
+  const warningDiv = document.getElementById('dash-parts-selection-warning');
+  if (hasSubsidyTarget) {
+    warningDiv.classList.remove('hidden');
+  } else {
+    warningDiv.classList.add('hidden');
+  }
+  
+  // モーダル内のリストを生成
+  renderDashboardPartsSelectionList(selectedData);
+  
+  // モーダルを表示
+  document.getElementById('dash-parts-selection-modal').classList.remove('hidden');
+}
+
+function renderDashboardPartsSelectionList(selectedData) {
+  const container = document.getElementById('dash-parts-selection-list');
+  container.innerHTML = '';
+  
+  selectedData.forEach((machine, index) => {
+    const div = document.createElement('div');
+    div.className = 'border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition';
+    
+    const subsidyBadge = machine.isSubsidy 
+      ? '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">補助金</span>'
+      : '';
+    
+    // ステータス表示用の色とアイコンを決定
+    const getStatusBadge = (status, type) => {
+      if (!status || status === '-') return '<span class="text-gray-400 text-xs">-</span>';
+      if (status === '通知' || status.includes('通知')) {
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-300"><i class="fas fa-exclamation-triangle mr-1"></i>${status}</span>`;
+      }
+      if (status === '交換準備') {
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-orange-100 text-orange-700 border border-orange-300"><i class="fas fa-tools mr-1"></i>${status}</span>`;
+      }
+      return `<span class="text-gray-600 text-xs">${status}</span>`;
+    };
+    
+    const railStatusBadge = getStatusBadge(machine.railStatus, 'rail');
+    const brushStatusBadge = getStatusBadge(machine.brushStatus, 'brush');
+    const bodyStatusBadge = getStatusBadge(machine.bodyStatus, 'body');
+    
+    // 交換が必要かどうかを判定
+    const needsRail = machine.railStatus === '通知';
+    const needsBrush = machine.brushStatus && machine.brushStatus.includes('通知');
+    const needsBody = machine.bodyStatus === '交換準備' || machine.machineId === '全機';
+    
+    // 選択可能な部品を決定
+    const availableParts = [];
+    
+    if (needsBody || machine.machineId === '全機') {
+      // 本体が交換準備の場合、本体のみ選択可能
+      availableParts.push({ 
+        id: '本体', 
+        label: '本体', 
+        recommended: true,
+        reason: '本体が交換準備のため',
+        disabled: false
+      });
+    } else {
+      // 本体が交換準備でない場合、全ての部品を選択可能
+      if (needsRail) {
+        availableParts.push({ 
+          id: 'レール車輪', 
+          label: 'レール車輪', 
+          recommended: true,
+          reason: 'レールステータスが「通知」のため',
+          disabled: false
+        });
+      }
+      if (needsBrush) {
+        availableParts.push({ 
+          id: '布ブラシ', 
+          label: '布ブラシ', 
+          recommended: true,
+          reason: 'ブラシステータスが「通知」のため',
+          disabled: false
+        });
+      }
+      // 本体以外のアラートがない場合でも、レール・ブラシは選択可能
+      if (!needsRail && !needsBrush) {
+        availableParts.push({ 
+          id: 'レール車輪', 
+          label: 'レール車輪', 
+          recommended: false,
+          reason: '任意で選択可能',
+          disabled: false
+        });
+        availableParts.push({ 
+          id: '布ブラシ', 
+          label: '布ブラシ', 
+          recommended: false,
+          reason: '任意で選択可能',
+          disabled: false
+        });
+      }
+    }
+    
+    const checkboxes = availableParts.map(part => {
+      const isChecked = machine.selectedParts.includes(part.id);
+      const recommendedBadge = part.recommended 
+        ? '<span class="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-blue-100 text-blue-700 border border-blue-300"><i class="fas fa-star mr-1"></i>推奨</span>'
+        : '';
+      
+      return `
+        <div class="flex items-center p-2 rounded border ${part.recommended ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'} hover:bg-blue-100 transition">
+          <label class="flex items-center cursor-pointer flex-1">
+            <input type="checkbox" 
+                   class="dash-part-checkbox mr-2 w-4 h-4" 
+                   data-machine-index="${index}"
+                   data-part-id="${part.id}"
+                   ${isChecked ? 'checked' : ''}
+                   ${part.disabled ? 'disabled' : ''}
+                   onchange="updateDashboardMachineParts(${index}, '${part.id}', this.checked)">
+            <span class="font-medium">${part.label}</span>
+            ${recommendedBadge}
+            <span class="ml-auto text-xs text-gray-500">${part.reason}</span>
+          </label>
+        </div>
+      `;
+    }).join('');
+    
+    div.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center">
+          <span class="font-bold text-gray-800">${machine.shopName}</span>
+          <span class="ml-2 text-sm text-gray-500">(${machine.machineId})</span>
+          ${subsidyBadge}
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 mb-3 text-xs">
+        <div><span class="text-gray-500">レール:</span> ${railStatusBadge}</div>
+        <div><span class="text-gray-500">ブラシ:</span> ${brushStatusBadge}</div>
+        <div><span class="text-gray-500">本体:</span> ${bodyStatusBadge}</div>
+      </div>
+      <div class="space-y-1">
+        ${checkboxes}
+      </div>
+    `;
+    
+    container.appendChild(div);
+  });
+  
+  // グローバル変数に保存
+  window.dashSelectedDataForModal = selectedData;
+}
+
+function updateDashboardMachineParts(machineIndex, partId, checked) {
+  if (!window.dashSelectedDataForModal) return;
+  
+  const machine = window.dashSelectedDataForModal[machineIndex];
+  if (!machine) return;
+  
+  if (checked) {
+    if (!machine.selectedParts.includes(partId)) {
+      machine.selectedParts.push(partId);
+    }
+  } else {
+    machine.selectedParts = machine.selectedParts.filter(p => p !== partId);
+  }
+}
+
+function closeDashboardPartsModal() {
+  document.getElementById('dash-parts-selection-modal').classList.add('hidden');
+  dashCurrentActionType = null;
+  window.dashSelectedDataForModal = null;
+}
+
+function confirmDashboardPartsSelection() {
+  if (!window.dashSelectedDataForModal || !dashCurrentActionType) {
+    alert('エラー: データが見つかりません');
+    return;
+  }
+  
+  // 選択された部品があるか確認
+  const hasSelectedParts = window.dashSelectedDataForModal.some(m => m.selectedParts.length > 0);
+  if (!hasSelectedParts) {
+    alert('少なくとも1つの部品を選択してください');
+    return;
+  }
+  
+  // データを整形
+  const selectedData = window.dashSelectedDataForModal
+    .filter(m => m.selectedParts.length > 0)
+    .map(m => ({
+      shopCode: m.shopCode,
+      shopName: m.shopName,
+      machineId: m.machineId,
+      parts: m.selectedParts,
+      nextWorkMemo: m.nextWorkMemo || ''
+    }));
+  
+  closeDashboardPartsModal();
+  
+  showLoading(true);
+  
+  if (dashCurrentActionType === 'register') {
+    // 案件登録
+    google.script.run
+      .withSuccessHandler(result => {
+        showLoading(false);
+        alert(`案件化しました。\n登録件数: ${result.registeredCount}件`);
+        window.clearCache('dashboard');
+        window.clearCache('progress');
+        setTimeout(() => {
+          dashboardInit(true);
+          if (window.progressInit) window.progressInit(true);
+        }, 500);
+      })
+      .withFailureHandler(e => {
+        showLoading(false);
+        alert('エラー: ' + e);
+        console.error('案件登録エラー:', e);
+      })
+      .registerSelectedProjects(selectedData);
+  } else if (dashCurrentActionType === 'draft') {
+    // メール下書き作成
+    google.script.run
+      .withSuccessHandler(result => {
+        showLoading(false);
+        alert(`メール下書きを作成しました。\n登録件数: ${result.registeredCount}件`);
+        window.clearCache('dashboard');
+        window.clearCache('progress');
+        setTimeout(() => {
+          dashboardInit(true);
+          if (window.progressInit) window.progressInit(true);
+        }, 500);
+      })
+      .withFailureHandler(e => {
+        showLoading(false);
+        alert('エラー: ' + e);
+        console.error('メール下書き作成エラー:', e);
+      })
+      .createDraftsForSelected(selectedData);
+  }
 }
 function updateStatus(id, newStatus) {
   if (!confirm(`ステータスを「${newStatus}」に変更しますか？`)) return;
