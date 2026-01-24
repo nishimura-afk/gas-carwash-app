@@ -138,36 +138,15 @@ function refreshStatusSummary() {
       if (installMonth > recordMonth) count = 0; 
     }
 
-    // 月平均台数の計算（月次データの累計台数の増分の平均）
+    // 月平均台数の計算（日次台数の平均）
     let avgCount = 0;
-    if (targetRecords.length > 1) {
-      // 時系列でソート
-      const sortedRecords = targetRecords.sort((a, b) => {
-        const dateA = new Date(a['年月']);
-        const dateB = new Date(b['年月']);
-        return dateA - dateB;
-      });
-      
-      // 各月の累計台数の増分を計算
-      const monthlyIncrements = [];
-      for (let i = 1; i < sortedRecords.length; i++) {
-        const prevCount = parseFloat(sortedRecords[i - 1]['累計台数']) || 0;
-        const currCount = parseFloat(sortedRecords[i]['累計台数']) || 0;
-        const increment = currCount - prevCount;
-        if (increment > 0) {
-          monthlyIncrements.push(increment);
-        }
-      }
-      
-      // 増分の平均を計算（直近12ヶ月分を使用）
-      if (monthlyIncrements.length > 0) {
-        const recentIncrements = monthlyIncrements.slice(-12); // 直近12ヶ月
-        const sum = recentIncrements.reduce((acc, val) => acc + val, 0);
-        avgCount = Math.round(sum / recentIncrements.length);
-      }
-    } else if (targetRecords.length === 1) {
-      // データが1件のみの場合は日次台数を使用（後方互換性）
-      avgCount = Math.round(parseFloat(targetRecords[0]['日次台数']) || 0);
+    if (targetRecords.length > 0) {
+      // 日次台数の合計を計算
+      const totalDaily = targetRecords.reduce((sum, r) => sum + (parseFloat(r['日次台数']) || 0), 0);
+      // 日次台数の平均を計算（直近12ヶ月分を使用）
+      const recentRecords = targetRecords.slice(-12); // 直近12ヶ月
+      const recentTotal = recentRecords.reduce((sum, r) => sum + (parseFloat(r['日次台数']) || 0), 0);
+      avgCount = Math.round(recentTotal / recentRecords.length);
     }
     
     const validItem = { 
