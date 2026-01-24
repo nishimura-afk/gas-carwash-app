@@ -45,6 +45,18 @@ if ($LASTEXITCODE -ne 0 -or $claspStatus -match "not logged in" -or $claspStatus
 clasp push
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✓ GAS送信完了" -ForegroundColor Green
+    
+    # Webアプリのデプロイを更新
+    Write-Host ""
+    Write-Host "[3/3] Webアプリをデプロイ中..." -ForegroundColor Yellow
+    $timestamp = Get-Date -Format "yyyy/MM/dd HH:mm:ss"
+    clasp deploy --description "Update: $timestamp"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✓ Webアプリデプロイ完了" -ForegroundColor Green
+    } else {
+        Write-Host "✗ Webアプリデプロイ失敗" -ForegroundColor Red
+        Write-Host "手動でGAS画面からデプロイしてください" -ForegroundColor Yellow
+    }
 } else {
     Write-Host "✗ GAS送信失敗" -ForegroundColor Red
     Write-Host ""
