@@ -3,34 +3,13 @@
   <div class="flex justify-between items-center border-b pb-4">
     <div>
       <h2 class="text-2xl font-bold text-gray-800"><i class="fas fa-home mr-2"></i>ダッシュボード</h2>
-      <p class="text-sm text-gray-600">洗車機の状態と進行中の案件を一覧表示します。</p>
+      <p class="text-sm text-gray-600">洗車機の状態を一覧表示し、対応が必要な機械を案件化できます。</p>
     </div>
     <button onclick="dashboardInit(true)" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded text-sm font-bold transition">
       <i class="fas fa-sync-alt mr-1"></i> 最新情報を取得
     </button>
   </div>
   
-  <!-- (HTML内容は変更なし、scriptのみ修正) -->
-  <div class="bg-blue-50 p-6 rounded-lg border border-blue-200 shadow-sm">
-    <h3 class="text-lg font-bold text-blue-800 mb-3"><i class="fas fa-tasks mr-2"></i>進行中の案件（見積～発注）</h3>
-    <div class="overflow-x-auto bg-white rounded border">
-      <table class="w-full text-sm text-left">
-        <thead class="bg-blue-100 text-blue-800">
-          <tr>
-            <th class="p-3">店舗名 / 機種</th>
-            <th class="p-3">案件内容</th>
-            <th class="p-3">現在のステータス</th>
-            <th class="p-3 text-right">アクション</th>
-          </tr>
-        </thead>
-        <tbody id="dash-projects-body" class="divide-y">
-          <tr><td colspan="4" class="p-4 text-center text-gray-500">案件はありません</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="text-xs text-blue-600 mt-2 text-right">※「発注済」になった案件は、案件管理画面で日程を登録してください。</p>
-  </div>
-
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <div class="bg-red-50 p-6 rounded-lg border border-red-200 shadow-sm">
       <h3 class="text-lg font-bold text-red-700"><i class="fas fa-exclamation-triangle mr-2"></i>要対応・注意</h3>
@@ -129,46 +108,9 @@ function renderDashboard(data) {
   showLoading(false);
   document.getElementById('dash-notice-count').innerText = data.noticeCount + ' 台';
   document.getElementById('dash-normal-count').innerText = data.normalCount + ' 台';
-  renderProjects(data.projects);
   renderNoticeList(data.noticeList);
 }
 
-// ... (以下、renderProjects, renderNoticeList, updateStatus, deleteProject は変更なし) ...
-function renderProjects(projects) {
-  const tbody = document.getElementById('dash-projects-body');
-  tbody.innerHTML = '';
-  if (!projects || projects.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">現在進行中の案件はありません</td></tr>';
-    return;
-  }
-  projects.forEach(p => {
-    const tr = document.createElement('tr');
-    tr.className = "hover:bg-blue-50";
-    let actionBtn = '';
-    if (p.status === '見積依頼中') {
-      actionBtn = `<button onclick="updateStatus('${p.id}', '見積受領')" class="bg-indigo-500 text-white px-3 py-1 rounded text-xs hover:bg-indigo-600">見積受領へ</button>`;
-    } else if (p.status === '見積受領') {
-      actionBtn = `<button onclick="updateStatus('${p.id}', '発注済')" class="bg-orange-500 text-white px-3 py-1 rounded text-xs hover:bg-orange-600">発注済へ</button>`;
-    } else if (p.status === '発注済') {
-      actionBtn = `<span class="text-green-600 font-bold text-xs"><i class="fas fa-check mr-1"></i>日程登録待ち</span>`;
-    }
-    tr.innerHTML = `
-      <td class="p-3">
-        <div class="font-bold text-gray-800">${p.shopName}</div>
-        <div class="text-xs text-gray-500">${p.machineId} (${p.shopCode})</div>
-      </td>
-      <td class="p-3 font-bold text-blue-900">${p.part}</td>
-      <td class="p-3">
-        <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-bold border border-gray-300">${p.status}</span>
-      </td>
-      <td class="p-3 text-right space-x-2">
-        ${actionBtn}
-        <button onclick="deleteProject('${p.id}')" class="text-gray-400 hover:text-red-500 transition" title="案件を取り消す"><i class="fas fa-trash-alt"></i></button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
 let dashSelectedMachines = [];
 let dashCurrentActionType = null;
 
@@ -547,15 +489,5 @@ function confirmDashboardPartsSelection() {
     console.error('不明なアクションタイプ:', actionType);
     alert('不明なアクションタイプです: ' + actionType);
   }
-}
-function updateStatus(id, newStatus) {
-  if (!confirm(`ステータスを「${newStatus}」に変更しますか？`)) return;
-  showLoading(true);
-  google.script.run.withSuccessHandler(() => { clearCache('dashboard'); dashboardInit(true); }).withFailureHandler(e => { showLoading(false); alert('更新失敗: ' + e); }).updateProjectStatus(id, newStatus);
-}
-function deleteProject(id) {
-  if (!confirm('この案件を取り消しますか？\n（案件リストから削除され、取り消しステータスになります）')) return;
-  showLoading(true);
-  google.script.run.withSuccessHandler(() => { clearCache('dashboard'); dashboardInit(true); }).withFailureHandler(e => { showLoading(false); alert('削除失敗: ' + e); }).cancelProject(id);
 }
 </script>
