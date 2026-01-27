@@ -233,19 +233,23 @@ function renderManagement(list) {
     if (equipment) {
       // 設備情報がある場合
       if (cleanerCell) {
-        const cleanerCount = equipment.cleanerCount || 0;
-        cleanerCell.innerHTML = `<span class="font-bold text-green-700">${cleanerCount}台</span>`;
+        // クリーナー台数が存在する場合（0も含む）は表示
+        if (equipment.cleanerCount !== undefined && equipment.cleanerCount !== null && equipment.cleanerCount !== '') {
+          cleanerCell.innerHTML = `<span class="font-bold text-green-700">${equipment.cleanerCount}台</span>`;
+        } else {
+          cleanerCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
+        }
       }
       if (sbCell) {
-        const sbCount = equipment.sbCount || 0;
-        if (sbCount > 0) {
-          sbCell.innerHTML = `<span class="font-bold text-orange-700">${sbCount}台</span>`;
+        // SB台数が存在し、0より大きい場合のみ表示（0の場合は「-」）
+        if (equipment.sbCount !== undefined && equipment.sbCount !== null && equipment.sbCount !== '' && equipment.sbCount > 0) {
+          sbCell.innerHTML = `<span class="font-bold text-orange-700">${equipment.sbCount}台</span>`;
         } else {
           sbCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
         }
       }
     } else {
-      // 設備情報がない場合（データが存在しない、またはJ列が空）
+      // 設備情報がない場合（データが存在しない）
       if (cleanerCell) {
         cleanerCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
       }

@@ -215,17 +215,21 @@ function getShopEquipment(shopCode) {
   
   const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
   
-  // 設備構成情報が存在する行（J列が空でない）を見つける
+  // 設備構成情報が存在する行を見つける
   for (let i = 0; i < data.length; i++) {
     if (data[i][0] === shopCode) {
-      // J列（総設置枠数）が空でない場合のみ設備構成情報を返す
-      if (data[i][9] !== '' && data[i][9] != null) {
+      // J列（総設置枠数）、K列（クリーナー台数）、L列（SB台数）のいずれかが存在する場合
+      const hasTotalSlots = data[i][9] !== '' && data[i][9] != null;
+      const hasCleanerCount = data[i][10] !== '' && data[i][10] != null;
+      const hasSbCount = data[i][11] !== '' && data[i][11] != null;
+      
+      if (hasTotalSlots || hasCleanerCount || hasSbCount) {
         return {
           shopCode: data[i][0],
           shopName: data[i][1],
-          totalSlots: data[i][9] || 0,      // J列: 総設置枠数
-          cleanerCount: data[i][10] || 0,   // K列: クリーナー台数
-          sbCount: data[i][11] || 0,        // L列: SB台数
+          totalSlots: data[i][9] !== '' && data[i][9] != null ? data[i][9] : 0,      // J列: 総設置枠数
+          cleanerCount: data[i][10] !== '' && data[i][10] != null ? data[i][10] : 0,   // K列: クリーナー台数
+          sbCount: data[i][11] !== '' && data[i][11] != null ? data[i][11] : 0,        // L列: SB台数
           mattDate: data[i][12] || null     // M列: マット設置日
         };
       }
@@ -250,13 +254,18 @@ function getAllShopEquipment() {
     const shopCode = data[i][0];
     if (equipmentMap[shopCode]) continue;
     
-    if (data[i][9] !== '' && data[i][9] !== null) {
+    // J列（総設置枠数）、K列（クリーナー台数）、L列（SB台数）のいずれかが存在する場合
+    const hasTotalSlots = data[i][9] !== '' && data[i][9] !== null;
+    const hasCleanerCount = data[i][10] !== '' && data[i][10] !== null;
+    const hasSbCount = data[i][11] !== '' && data[i][11] !== null;
+    
+    if (hasTotalSlots || hasCleanerCount || hasSbCount) {
       equipmentMap[shopCode] = {
         shopCode: shopCode,
         shopName: data[i][1],
-        totalSlots: data[i][9] || 0,
-        cleanerCount: data[i][10] || 0,
-        sbCount: data[i][11] || 0,
+        totalSlots: data[i][9] !== '' && data[i][9] !== null ? data[i][9] : 0,
+        cleanerCount: data[i][10] !== '' && data[i][10] !== null ? data[i][10] : 0,
+        sbCount: data[i][11] !== '' && data[i][11] !== null ? data[i][11] : 0,
         mattDate: data[i][12] || null
       };
     }
