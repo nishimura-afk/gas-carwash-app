@@ -215,16 +215,20 @@ function getShopEquipment(shopCode) {
   
   const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
   
+  // 設備構成情報が存在する行（J列が空でない）を見つける
   for (let i = 0; i < data.length; i++) {
     if (data[i][0] === shopCode) {
-      return {
-        shopCode: data[i][0],
-        shopName: data[i][1],
-        totalSlots: data[i][9] || 0,      // J列: 総設置枠数
-        cleanerCount: data[i][10] || 0,   // K列: クリーナー台数
-        sbCount: data[i][11] || 0,        // L列: SB台数
-        mattDate: data[i][12] || null     // M列: マット設置日
-      };
+      // J列（総設置枠数）が空でない場合のみ設備構成情報を返す
+      if (data[i][9] !== '' && data[i][9] != null) {
+        return {
+          shopCode: data[i][0],
+          shopName: data[i][1],
+          totalSlots: data[i][9] || 0,      // J列: 総設置枠数
+          cleanerCount: data[i][10] || 0,   // K列: クリーナー台数
+          sbCount: data[i][11] || 0,        // L列: SB台数
+          mattDate: data[i][12] || null     // M列: マット設置日
+        };
+      }
     }
   }
   return null;

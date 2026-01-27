@@ -1,3 +1,4 @@
+
 -- Management View -->
 <div class="space-y-4">
   <div class="flex justify-between items-center">
@@ -93,10 +94,29 @@ function managementInit() {
   showLoading(true);
   // 設備構成キャッシュをクリア
   window.equipmentCache = {};
+  
+  // 設備構成情報を一括取得
   google.script.run
-    .withSuccessHandler(renderManagement)
-    .withFailureHandler(e => { showLoading(false); alert('取得失敗: ' + e); })
-    .getCarWashList();
+    .withSuccessHandler(function(equipmentMap) {
+      // 設備構成情報をキャッシュに保存
+      window.equipmentCache = equipmentMap || {};
+      
+      // 洗車機リストを取得
+      google.script.run
+        .withSuccessHandler(renderManagement)
+        .withFailureHandler(e => { showLoading(false); alert('取得失敗: ' + e); })
+        .getCarWashList();
+    })
+    .withFailureHandler(function(e) {
+      console.warn('設備構成情報取得エラー:', e);
+      window.equipmentCache = {};
+      // エラーでも洗車機リストは取得する
+      google.script.run
+        .withSuccessHandler(renderManagement)
+        .withFailureHandler(err => { showLoading(false); alert('取得失敗: ' + err); })
+        .getCarWashList();
+    })
+    .getAllShopEquipment();
 }
 
 // グローバル変数：選択された機械のデータを保持
@@ -203,64 +223,18 @@ function renderManagement(list) {
     `;
     tbody.appendChild(tr);
     
-    // ★設備構成情報を非同期で取得（店舗コードごとに1回だけ）
+    // ★設備構成情報を表示（キャッシュから取得）
     const shopCode = row['店舗コード'];
-    if (!window.equipmentCache) {
-      window.equipmentCache = {};
-    }
+    const equipment = window.equipmentCache && window.equipmentCache[shopCode] ? window.equipmentCache[shopCode] : null;
     
-    if (!window.equipmentCache[shopCode]) {
-      // まだ取得していない店舗の場合のみ取得
-      window.equipmentCache[shopCode] = 'loading'; // ローディング中フラグ
-      
-      google.script.run
-        .withSuccessHandler(function(equipment) {
-          if (equipment) {
-            window.equipmentCache[shopCode] = equipment;
-            
-            // 同じ店舗コードの全ての行を更新
-            const cleanerCells = document.querySelectorAll(`td[data-shop-code-equipment="${shopCode}"]`);
-            const sbCells = document.querySelectorAll(`td[data-shop-code-sb="${shopCode}"]`);
-            
-            cleanerCells.forEach(cell => {
-              cell.innerHTML = `<span class="font-bold text-green-700">${equipment.cleanerCount || 0}台</span>`;
-            });
-            
-            sbCells.forEach(cell => {
-              const sbCount = equipment.sbCount || 0;
-              if (sbCount > 0) {
-                cell.innerHTML = `<span class="font-bold text-orange-700">${sbCount}台</span>`;
-              } else {
-                cell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
-              }
-            });
-          } else {
-            // 設備情報が見つからない場合
-            window.equipmentCache[shopCode] = null;
-            const cleanerCells = document.querySelectorAll(`td[data-shop-code-equipment="${shopCode}"]`);
-            const sbCells = document.querySelectorAll(`td[data-shop-code-sb="${shopCode}"]`);
-            
-            cleanerCells.forEach(cell => {
-              cell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
-            });
-            sbCells.forEach(cell => {
-              cell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
-            });
-          }
-        })
-        .withFailureHandler(function(error) {
-          console.warn('設備構成取得エラー:', error);
-          window.equipmentCache[shopCode] = null;
-        })
-        .getShopEquipment(shopCode);
-    } else if (window.equipmentCache[shopCode] !== 'loading' && window.equipmentCache[shopCode]) {
-      // 既に取得済みの場合は即座に表示
-      const equipment = window.equipmentCache[shopCode];
-      const cleanerCell = tr.querySelector(`td[data-shop-code-equipment="${shopCode}"]`);
-      const sbCell = tr.querySelector(`td[data-shop-code-sb="${shopCode}"]`);
-      
+    const cleanerCell = tr.querySelector(`td[data-shop-code-equipment="${shopCode}"]`);
+    const sbCell = tr.querySelector(`td[data-shop-code-sb="${shopCode}"]`);
+    
+    if (equipment) {
+      // 設備情報がある場合
       if (cleanerCell) {
-        cleanerCell.innerHTML = `<span class="font-bold text-green-700">${equipment.cleanerCount || 0}台</span>`;
+        const cleanerCount = equipment.cleanerCount || 0;
+        cleanerCell.innerHTML = `<span class="font-bold text-green-700">${cleanerCount}台</span>`;
       }
       if (sbCell) {
         const sbCount = equipment.sbCount || 0;
@@ -269,6 +243,14 @@ function renderManagement(list) {
         } else {
           sbCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
         }
+      }
+    } else {
+      // 設備情報がない場合（データが存在しない、またはJ列が空）
+      if (cleanerCell) {
+        cleanerCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
+      }
+      if (sbCell) {
+        sbCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
       }
     }
   });
