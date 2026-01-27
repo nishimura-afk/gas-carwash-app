@@ -438,31 +438,42 @@ function createDraftsForSelected(selectedData) {
         }
         
         if (part === '本体') {
+          // ★設備構成からクリーナー台数を取得
+          const equipment = getAllShopEquipment()[shopCode];
+          const cleanerText = equipment && equipment.cleanerCount > 0 
+            ? `、コインクリーナー${equipment.cleanerCount}台`
+            : '';
+          
           // 本体交換 → ダイフク案件
           daifukuItems.push({
             shopName: item.shopName,
             machineId: '全機',
-            content: '洗車機・クリーナー・マット洗い機 本体入れ替え',
+            content: `洗車機・マット洗い機 本体入れ替え${cleanerText}`,
             memo: shopGroups[shopCode].subsidyInfo || "",
             userMemo: item.nextWorkMemo || ""
           });
           
-          // スプラッシュブロー（特定の店舗以外）→ ビユーテー案件
+          // ★以下を追加
+          // スプラッシュブロー（特定の店舗以外）→ ビューティエ案件
           const excludedShops = ['東和歌山', '糸我', '貴志川'];
           if (!excludedShops.includes(item.shopName)) {
-            const isSbAlreadyActive = Array.from(activeProjects).some(p => p.includes(shopCode) && p.includes('スプラッシュブロー'));
-            if (!isSbAlreadyActive) {
-              beautyItems.push({
-                shopName: item.shopName,
-                machineId: 'SB1',
-                content: 'スプラッシュブローSB1 入れ替え',
-                memo: '',
-                userMemo: ''
-              });
-              registerProject(shopCode, 'SB1', 'スプラッシュブロー', config.PROJECT_STATUS.ESTIMATE_REQ);
-              registeredCount++;
+            // 設備構成からSB台数を取得
+            if (equipment && equipment.sbCount > 0) {
+              const isSbAlreadyActive = Array.from(activeProjects).some(p => p.includes(shopCode) && p.includes('スプラッシュブロー'));
+              if (!isSbAlreadyActive) {
+                beautyItems.push({
+                  shopName: item.shopName,
+                  machineId: `SB${equipment.sbCount}台`,
+                  content: `スプラッシュブロー ${equipment.sbCount}台 入れ替え`,
+                  memo: '',
+                  userMemo: ''
+                });
+                registerProject(shopCode, `SB${equipment.sbCount}台`, 'スプラッシュブロー', config.PROJECT_STATUS.ESTIMATE_REQ);
+                registeredCount++;
+              }
             }
           }
+          // ★追加終わり
         } else if (part === 'スプラッシュブロー') {
           // スプラッシュブロー → ビユーテー案件
           beautyItems.push({
@@ -500,16 +511,16 @@ function createDraftsForSelected(selectedData) {
       }
     }
     
-    // メール下書き作成（ビユーテー：松永様）
+    // メール下書き作成（ビューティエ：松永様）
     if (beautyItems.length > 0) {
       try {
         const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
-        const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
+        const body = generateConsolidatedTemplate(beautyItems, 'ビューティエ\n松永様');
         GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
         draftCount++;
       } catch (e) {
-        console.error('ビユーテーメール作成エラー:', e);
-        throw new Error(`メール下書き作成に失敗しました（ビユーテー）: ${e.message}`);
+        console.error('ビューティエメール作成エラー:', e);
+        throw new Error(`メール下書き作成に失敗しました（ビューティエ）: ${e.message}`);
       }
     }
     
@@ -609,13 +620,14 @@ function cancelSchedule(rowNumber, eventId) {
 function createDraftsForAlerts() {
   const config = getConfig();
   const list = getCarWashListCached();
+  const equipmentMap = getAllShopEquipment(); // ★追加
   
   // 作成ログ保存用
   const createdLog = [];
   
   // ★宛先定義
   const RECIPIENT_DAIFUKU = "nishimura@selfix.jp"; // 本来は木村様宛
-  const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // 本来は松永様宛
+  const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // ★追加（ビューティエ宛）
   
   // 現在進行中のプロジェクトを取得（重複登録防止）
   const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
@@ -676,31 +688,48 @@ function createDraftsForAlerts() {
     
     // 本体交換がある場合
     if (group.hasBodyExchange) {
-      // ダイフク案件（本体）
+      // ★設備構成情報を取得
+      const equipment = equipmentMap[shopCode];
+      
+      if (!equipment) {
+        Logger.log(`警告: ${group.name} (${shopCode}) の設備構成情報が見つかりません`);
+        return;
+      }
+      
+      // ★ダイフク案件（洗車機 + マット + クリーナー）
+      const cleanerText = equipment.cleanerCount > 0 
+        ? `、コインクリーナー${equipment.cleanerCount}台`
+        : '';
+      
       daifukuItems.push({
         shopName: group.name,
         machineId: '全機',
-        content: '洗車機・クリーナー・マット洗い機 本体入れ替え',
+        content: `洗車機・マット洗い機 本体入れ替え${cleanerText}`,
         memo: group.subsidyInfo || "",
         userMemo: group.nextWorkMemo
       });
       registerProject(shopCode, '全機', '本体', config.PROJECT_STATUS.ESTIMATE_REQ);
       createdLog.push({ shopName: group.name, machineId: '全機', part: '本体入れ替え' });
 
-      // スプラッシュブロー（特定の店舗以外）→ ビユーテー案件
-      const excludedShops = ['東和歌山', '糸我', '貴志川'];
-      if (!excludedShops.includes(group.name)) {
-        const isSbAlreadyActive = activeProjects.some(p => p.includes(shopCode) && p.includes('スプラッシュブロー'));
-        if (!isSbAlreadyActive) {
-          beautyItems.push({
-            shopName: group.name,
-            machineId: 'SB1',
-            content: 'スプラッシュブローSB1 入れ替え',
-            memo: '',
-            userMemo: ''
-          });
-          registerProject(shopCode, 'SB1', 'スプラッシュブロー', config.PROJECT_STATUS.ESTIMATE_REQ);
-          createdLog.push({ shopName: group.name, machineId: 'SB1', part: 'スプラッシュブロー' });
+      // ★ビューティエ案件（SBがある場合のみ）
+      if (equipment.sbCount > 0) {
+        // 東和歌山、糸我、貴志川はSB対象外
+        const excludedShops = ['東和歌山', '糸我', '貴志川'];
+        
+        if (!excludedShops.includes(group.name)) {
+          const isSbAlreadyActive = activeProjects.some(p => p.includes(shopCode) && p.includes('スプラッシュブロー'));
+          if (!isSbAlreadyActive) {
+            beautyItems.push({
+              shopName: group.name,
+              machineId: `SB${equipment.sbCount}台`,
+              content: `スプラッシュブロー ${equipment.sbCount}台 入れ替え`,
+              memo: '',
+              userMemo: ''
+            });
+            
+            registerProject(shopCode, `SB${equipment.sbCount}台`, 'スプラッシュブロー', config.PROJECT_STATUS.ESTIMATE_REQ);
+            createdLog.push({ shopName: group.name, machineId: `SB${equipment.sbCount}台`, part: 'スプラッシュブロー' });
+          }
         }
       }
     } else {
@@ -731,10 +760,10 @@ function createDraftsForAlerts() {
     GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
   }
 
-  // メール下書き作成（ビユーテー：松永様）
+  // ★ビューティエ向けメール作成（SBがある場合のみ）
   if (beautyItems.length > 0) {
     const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
-    const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
+    const body = generateConsolidatedTemplate(beautyItems, 'ビューティエ\n松永様');
     GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
   }
 

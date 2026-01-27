@@ -49,6 +49,7 @@
             <th class="p-3">レール</th>
             <th class="p-3">ブラシ</th>
             <th class="p-3">本体</th>
+            <th class="p-3 bg-blue-50 text-center">設備構成</th>
           </tr>
         </thead>
         <tbody id="dash-table-body" class="divide-y">
@@ -120,7 +121,7 @@ function renderNoticeList(list) {
   dashSelectedMachines = [];
   
   if (list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-green-600 font-bold">現在、対応が必要な端末はありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-green-600 font-bold">現在、対応が必要な端末はありません</td></tr>';
     updateDashboardButtons();
     return;
   }
@@ -141,6 +142,9 @@ function renderNoticeList(list) {
     const isRailAlert = item['レールステータス'] === '通知';
     const isBrushAlert = item['ブラシステータス'] && item['ブラシステータス'].includes('通知');
     
+    // ★設備構成の表示を生成（初期値）
+    let equipmentDisplay = '<span class="text-gray-400 text-xs">-</span>';
+    
     tr.innerHTML = `
       <td class="p-3">
         <input type="checkbox" class="dash-machine-checkbox" data-index="${index}" onchange="toggleDashboardCheckbox(${index})">
@@ -150,8 +154,44 @@ function renderNoticeList(list) {
       <td class="p-3 font-bold ${isRailAlert ? 'text-red-600' : 'text-gray-300'}">${item['レールステータス']}</td>
       <td class="p-3 font-bold ${isBrushAlert ? 'text-red-600' : 'text-gray-300'}">${item['ブラシステータス']}</td>
       <td class="p-3 font-bold ${isBodyExchange ? 'text-red-600' : 'text-gray-300'}">${item['本体ステータス']}</td>
+      <td class="p-3 bg-blue-50" data-shop-code="${item['店舗コード']}">${equipmentDisplay}</td>
     `;
     tbody.appendChild(tr);
+    
+    // ★設備構成情報を非同期で取得（本体交換の場合のみ）
+    if (isBodyExchange) {
+      google.script.run
+        .withSuccessHandler(function(equipment) {
+          if (equipment && equipment.sbCount > 0) {
+            // SBがある場合は警告表示
+            const cell = document.querySelector(`tr[data-shop-code="${item['店舗コード']}"] td:last-child`);
+            if (cell) {
+              cell.innerHTML = `
+                <div class="text-xs space-y-0.5 bg-blue-50 p-2 rounded">
+                  <div class="text-gray-600">総枠: <span class="font-bold text-blue-700">${equipment.totalSlots}台</span></div>
+                  <div class="text-gray-600">クリーナー: <span class="font-bold">${equipment.cleanerCount}台</span></div>
+                  <div class="text-orange-600 font-bold">SB: ${equipment.sbCount}台 ⚠️ビューティエ</div>
+                </div>
+              `;
+            }
+          } else if (equipment) {
+            // SBがない場合
+            const cell = document.querySelector(`tr[data-shop-code="${item['店舗コード']}"] td:last-child`);
+            if (cell) {
+              cell.innerHTML = `
+                <div class="text-xs space-y-0.5 bg-blue-50 p-2 rounded">
+                  <div class="text-gray-600">総枠: <span class="font-bold text-blue-700">${equipment.totalSlots}台</span></div>
+                  <div class="text-gray-600">クリーナー: <span class="font-bold">${equipment.cleanerCount}台</span></div>
+                </div>
+              `;
+            }
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.warn('設備構成取得エラー:', error);
+        })
+        .getShopEquipment(item['店舗コード']);
+    }
     
     // データを保存
     dashSelectedMachines.push({

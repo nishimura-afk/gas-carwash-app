@@ -202,3 +202,60 @@ function getCarWashListCached() {
     return obj;
   });
 }
+
+/**
+ * 店舗コードから設備構成情報を取得
+ * @param {string} shopCode - 店舗コード（例: "S014"）
+ * @return {Object|null} 設備構成情報
+ */
+function getShopEquipment(shopCode) {
+  const sheet = getSheet(getConfig().SHEET_NAMES.MASTER_EQUIPMENT);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return null;
+  
+  const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][0] === shopCode) {
+      return {
+        shopCode: data[i][0],
+        shopName: data[i][1],
+        totalSlots: data[i][9] || 0,      // J列: 総設置枠数
+        cleanerCount: data[i][10] || 0,   // K列: クリーナー台数
+        sbCount: data[i][11] || 0,        // L列: SB台数
+        mattDate: data[i][12] || null     // M列: マット設置日
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * 全店舗の設備構成を取得（店舗コードをキーにしたマップ）
+ * @return {Object} 店舗コードをキーとした設備構成マップ
+ */
+function getAllShopEquipment() {
+  const sheet = getSheet(getConfig().SHEET_NAMES.MASTER_EQUIPMENT);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return {};
+  
+  const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  const equipmentMap = {};
+  
+  for (let i = 0; i < data.length; i++) {
+    const shopCode = data[i][0];
+    if (equipmentMap[shopCode]) continue;
+    
+    if (data[i][9] !== '' && data[i][9] !== null) {
+      equipmentMap[shopCode] = {
+        shopCode: shopCode,
+        shopName: data[i][1],
+        totalSlots: data[i][9] || 0,
+        cleanerCount: data[i][10] || 0,
+        sbCount: data[i][11] || 0,
+        mattDate: data[i][12] || null
+      };
+    }
+  }
+  return equipmentMap;
+}
