@@ -454,7 +454,7 @@ function createDraftsForSelected(selectedData) {
           });
           
           // ★以下を追加
-          // スプラッシュブロー（特定の店舗以外）→ ビューティエ案件
+          // スプラッシュブロー（特定の店舗以外）→ ビユテー案件
           const excludedShops = ['東和歌山', '糸我', '貴志川'];
           if (!excludedShops.includes(item.shopName)) {
             // 設備構成からSB台数を取得
@@ -475,7 +475,7 @@ function createDraftsForSelected(selectedData) {
           }
           // ★追加終わり
         } else if (part === 'スプラッシュブロー') {
-          // スプラッシュブロー → ビユーテー案件
+          // スプラッシュブロー → ビユテー案件
           beautyItems.push({
             shopName: item.shopName,
             machineId: item.machineId,
@@ -511,16 +511,16 @@ function createDraftsForSelected(selectedData) {
       }
     }
     
-    // メール下書き作成（ビューティエ：松永様）
+    // メール下書き作成（ビユテー：松永様）
     if (beautyItems.length > 0) {
       try {
         const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
-        const body = generateConsolidatedTemplate(beautyItems, 'ビューティエ\n松永様');
+        const body = generateConsolidatedTemplate(beautyItems, 'ビユテー\n松永様');
         GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
         draftCount++;
       } catch (e) {
-        console.error('ビューティエメール作成エラー:', e);
-        throw new Error(`メール下書き作成に失敗しました（ビューティエ）: ${e.message}`);
+        console.error('ビユテーメール作成エラー:', e);
+        throw new Error(`メール下書き作成に失敗しました（ビユテー）: ${e.message}`);
       }
     }
     
@@ -615,7 +615,7 @@ function cancelSchedule(rowNumber, eventId) {
 
 /**
  * 【改修】アラート一括メール作成
- * ダイフク（木村様）とビユーテー（松永様）に分けてメールを作成します。
+ * ダイフク（木村様）とビユテー（松永様）に分けてメールを作成します。
  */
 function createDraftsForAlerts() {
   const config = getConfig();
@@ -627,7 +627,7 @@ function createDraftsForAlerts() {
   
   // ★宛先定義
   const RECIPIENT_DAIFUKU = "nishimura@selfix.jp"; // 本来は木村様宛
-  const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // ★追加（ビューティエ宛）
+  const RECIPIENT_BEAUTY = "nishimura@selfix.jp";  // ★追加（ビユテー宛）
   
   // 現在進行中のプロジェクトを取得（重複登録防止）
   const sheet = getSheet(config.SHEET_NAMES.SCHEDULE);
@@ -711,7 +711,7 @@ function createDraftsForAlerts() {
       registerProject(shopCode, '全機', '本体', config.PROJECT_STATUS.ESTIMATE_REQ);
       createdLog.push({ shopName: group.name, machineId: '全機', part: '本体入れ替え' });
 
-      // ★ビューティエ案件（SBがある場合のみ）
+      // ★ビユテー案件（SBがある場合のみ）
       if (equipment.sbCount > 0) {
         // 東和歌山、糸我、貴志川はSB対象外
         const excludedShops = ['東和歌山', '糸我', '貴志川'];
@@ -760,10 +760,10 @@ function createDraftsForAlerts() {
     GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
   }
 
-  // ★ビューティエ向けメール作成（SBがある場合のみ）
+  // ★ビユテー向けメール作成（SBがある場合のみ）
   if (beautyItems.length > 0) {
     const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
-    const body = generateConsolidatedTemplate(beautyItems, 'ビューティエ\n松永様');
+    const body = generateConsolidatedTemplate(beautyItems, 'ビユテー\n松永様');
     GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
   }
 
@@ -829,12 +829,12 @@ function generateBodyReplacementTemplate(shopName) {
 }
 
 function generateSplashBlowTemplate(shopName) {
-  // ★宛先変更：ビユーテー松永様
+  // ★宛先変更：ビユテー松永様
   const itemText = 
          `【対象店舗】\nセルフィックス${shopName}SS\n\n` +
          `【依頼内容】\nスプラッシュブローＳＢ１　1台\n\n`;
 
-  return `ビユーテー\n松永様\n\n` +
+  return `ビユテー\n松永様\n\n` +
          `いつも大変お世話になっております。\n` +
          `日商有田株式会社の西村です。\n\n` +
          `表題の件、以下の対応が必要となりました。\n` +

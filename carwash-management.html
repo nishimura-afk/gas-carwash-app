@@ -34,12 +34,14 @@
           <th class="p-3 border-b">レール状況</th>
           <th class="p-3 border-b">ブラシ状況</th>
           <th class="p-3 border-b">本体状況</th>
+          <th class="p-3 border-b text-center bg-green-50">クリーナー</th>
+          <th class="p-3 border-b text-center bg-orange-50">SB</th>
           <th class="p-3 border-b">設置日</th>
           <th class="p-3 border-b text-center">メモ</th>
         </tr>
       </thead>
       <tbody id="mgmt-table-body" class="divide-y bg-white">
-        <tr><td colspan="10" class="p-4 text-center">データを取得中...</td></tr>
+        <tr><td colspan="12" class="p-4 text-center">データを取得中...</td></tr>
       </tbody>
     </table>
   </div>
@@ -89,6 +91,8 @@
 <script>
 function managementInit() {
   showLoading(true);
+  // 設備構成キャッシュをクリア
+  window.equipmentCache = {};
   google.script.run
     .withSuccessHandler(renderManagement)
     .withFailureHandler(e => { showLoading(false); alert('取得失敗: ' + e); })
@@ -105,7 +109,7 @@ function renderManagement(list) {
   tbody.innerHTML = '';
   
   if(!list || list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" class="p-4 text-center">データがありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="p-4 text-center">データがありません</td></tr>';
     return;
   }
 
@@ -184,6 +188,12 @@ function renderManagement(list) {
       <td class="p-3 ${railColor}">${railStatusText}</td>
       <td class="p-3 ${brushColor}">${brushStatusText}</td>
       <td class="p-3 ${bodyColor}">${bodyStatus}</td>
+      <td class="p-3 text-center bg-green-50" data-shop-code-equipment="${row['店舗コード']}">
+        <span class="text-gray-400 text-xs">-</span>
+      </td>
+      <td class="p-3 text-center bg-orange-50" data-shop-code-sb="${row['店舗コード']}">
+        <span class="text-gray-400 text-xs">-</span>
+      </td>
       <td class="p-3 text-gray-400 text-xs">${row['本体設置日']}</td>
       <td class="p-3 text-center">
         <button onclick="openMemoModal('${row['店舗コード']}', '${row['区別']}', '${memoContent.replace(/\n/g, '\\n')}')" class="${memoIconClass} text-lg transition" title="${memoTitle}">
@@ -192,6 +202,75 @@ function renderManagement(list) {
       </td>
     `;
     tbody.appendChild(tr);
+    
+    // ★設備構成情報を非同期で取得（店舗コードごとに1回だけ）
+    const shopCode = row['店舗コード'];
+    if (!window.equipmentCache) {
+      window.equipmentCache = {};
+    }
+    
+    if (!window.equipmentCache[shopCode]) {
+      // まだ取得していない店舗の場合のみ取得
+      window.equipmentCache[shopCode] = 'loading'; // ローディング中フラグ
+      
+      google.script.run
+        .withSuccessHandler(function(equipment) {
+          if (equipment) {
+            window.equipmentCache[shopCode] = equipment;
+            
+            // 同じ店舗コードの全ての行を更新
+            const cleanerCells = document.querySelectorAll(`td[data-shop-code-equipment="${shopCode}"]`);
+            const sbCells = document.querySelectorAll(`td[data-shop-code-sb="${shopCode}"]`);
+            
+            cleanerCells.forEach(cell => {
+              cell.innerHTML = `<span class="font-bold text-green-700">${equipment.cleanerCount || 0}台</span>`;
+            });
+            
+            sbCells.forEach(cell => {
+              const sbCount = equipment.sbCount || 0;
+              if (sbCount > 0) {
+                cell.innerHTML = `<span class="font-bold text-orange-700">${sbCount}台</span>`;
+              } else {
+                cell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
+              }
+            });
+          } else {
+            // 設備情報が見つからない場合
+            window.equipmentCache[shopCode] = null;
+            const cleanerCells = document.querySelectorAll(`td[data-shop-code-equipment="${shopCode}"]`);
+            const sbCells = document.querySelectorAll(`td[data-shop-code-sb="${shopCode}"]`);
+            
+            cleanerCells.forEach(cell => {
+              cell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
+            });
+            sbCells.forEach(cell => {
+              cell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
+            });
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.warn('設備構成取得エラー:', error);
+          window.equipmentCache[shopCode] = null;
+        })
+        .getShopEquipment(shopCode);
+    } else if (window.equipmentCache[shopCode] !== 'loading' && window.equipmentCache[shopCode]) {
+      // 既に取得済みの場合は即座に表示
+      const equipment = window.equipmentCache[shopCode];
+      const cleanerCell = tr.querySelector(`td[data-shop-code-equipment="${shopCode}"]`);
+      const sbCell = tr.querySelector(`td[data-shop-code-sb="${shopCode}"]`);
+      
+      if (cleanerCell) {
+        cleanerCell.innerHTML = `<span class="font-bold text-green-700">${equipment.cleanerCount || 0}台</span>`;
+      }
+      if (sbCell) {
+        const sbCount = equipment.sbCount || 0;
+        if (sbCount > 0) {
+          sbCell.innerHTML = `<span class="font-bold text-orange-700">${sbCount}台</span>`;
+        } else {
+          sbCell.innerHTML = `<span class="text-gray-400 text-xs">-</span>`;
+        }
+      }
+    }
   });
   
   updateButtonStates();
