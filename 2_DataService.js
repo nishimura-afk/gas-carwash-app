@@ -94,6 +94,9 @@ function refreshStatusSummary() {
   const masterData = getEquipmentMasterData();
   const monthlyData = getMonthlyData();
   const config = getConfig();
+  
+  // ★設備構成マップを取得
+  const equipmentMap = getAllShopEquipment();
 
   // ★高速化ポイント: 月次データを「店舗コード_区別」をキーにした辞書(Map)に事前変換
   // これにより、ループの中で毎回全データを検索する必要がなくなる（計算量が激減）
@@ -160,20 +163,31 @@ function refreshStatusSummary() {
 
     let isSubsidy = config.SUBSIDY_TARGET_SHOPS.some(s => item['店舗名'].includes(s));
     const memo = item['次回付帯作業メモ'] || "";
+    
+    // ★設備構成情報を取得
+    const shopCode = item['店舗コード'];
+    const equipment = equipmentMap[shopCode] || { cleanerCount: 0, sbCount: 0 };
 
     return [
       item['店舗コード'], item['店舗名'], item['区別'], count, avgCount,
       validItem['本体設置日'], res.railStatus, res.brushStatus, res.bodyStatus, 
       item['ブラシ種類'] === '布' ? '布' : 'スポンジ', res.railMonths,
       isSubsidy,
-      memo
+      memo,
+      // ★ここから追加
+      equipment.cleanerCount,
+      equipment.sbCount
+      // ★ここまで追加
     ];
   }).filter(i => i !== null);
 
   const sheet = getSheet(config.SHEET_NAMES.STATUS_SUMMARY);
   sheet.clearContents();
   
-  const headers = ['店舗コード', '店舗名', '区別', '累計台数', '月平均台数', '本体設置日', 'レールステータス', 'ブラシステータス', '本体ステータス', '布交換対象', 'railMonths', 'isSubsidy', 'nextWorkMemo'];
+  // ★ヘッダーに列を追加
+  const headers = ['店舗コード', '店舗名', '区別', '累計台数', '月平均台数', '本体設置日', 
+                   'レールステータス', 'ブラシステータス', '本体ステータス', '布交換対象', 
+                   'railMonths', 'isSubsidy', 'nextWorkMemo', 'cleanerCount', 'sbCount'];
   
   if (allStatus.length > 0) {
     sheet.getRange(1, 1, allStatus.length + 1, headers.length).setValues([headers, ...allStatus]);
