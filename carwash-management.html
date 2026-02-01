@@ -1,5 +1,4 @@
-
--- Management View -->
+<!-- Management View -->
 <div class="space-y-4">
   <div class="flex justify-between items-center">
     <div>
@@ -32,14 +31,6 @@
           <th class="p-3 border-b">区別</th>
           <th class="p-3 border-b text-right">累計台数</th>
           <th class="p-3 border-b text-right bg-blue-50">月平均</th>
-          <th class="p-3 border-b text-center bg-green-50">
-            <div class="text-xs">クリーナー</div>
-            <div class="text-xs text-gray-500">(台)</div>
-          </th>
-          <th class="p-3 border-b text-center bg-orange-50">
-            <div class="text-xs">SB</div>
-            <div class="text-xs text-gray-500">(台)</div>
-          </th>
           <th class="p-3 border-b">レール状況</th>
           <th class="p-3 border-b">ブラシ状況</th>
           <th class="p-3 border-b">本体状況</th>
@@ -48,7 +39,7 @@
         </tr>
       </thead>
       <tbody id="mgmt-table-body" class="divide-y bg-white">
-        <tr><td colspan="12" class="p-4 text-center">データを取得中...</td></tr>
+        <tr><td colspan="10" class="p-4 text-center">データを取得中...</td></tr>
       </tbody>
     </table>
   </div>
@@ -114,7 +105,7 @@ function renderManagement(list) {
   tbody.innerHTML = '';
   
   if(!list || list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="12" class="p-4 text-center">データがありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="p-4 text-center">データがありません</td></tr>';
     return;
   }
 
@@ -174,36 +165,6 @@ function renderManagement(list) {
     const memoIconClass = memoContent ? "text-blue-600" : "text-gray-300 hover:text-gray-500";
     const memoTitle = memoContent ? "メモあり: " + memoContent : "メモを追加";
 
-    // ★設備構成データを取得
-    const cleanerCount = row['cleanerCount'] !== undefined && row['cleanerCount'] !== null ? row['cleanerCount'] : null;
-    const sbCount = row['sbCount'] !== undefined && row['sbCount'] !== null ? row['sbCount'] : null;
-    
-    // ★設備構成の表示（店舗の最初の行のみ）
-    let equipmentDisplay = '';
-    let equipmentDisplaySB = '';
-    
-    // 前の行と店舗コードが異なる場合のみ表示
-    const prevRow = index > 0 ? list[index - 1] : null;
-    const isFirstRowOfShop = !prevRow || prevRow['店舗コード'] !== row['店舗コード'];
-    
-    if (isFirstRowOfShop) {
-      if (cleanerCount !== null && cleanerCount !== '') {
-        equipmentDisplay = `<span class="font-bold text-green-700">${cleanerCount}</span>`;
-      } else {
-        equipmentDisplay = `<span class="text-gray-400 text-xs">-</span>`;
-      }
-      
-      if (sbCount !== null && sbCount !== '' && sbCount > 0) {
-        equipmentDisplaySB = `<span class="font-bold text-orange-600">${sbCount}</span>`;
-      } else {
-        equipmentDisplaySB = `<span class="text-gray-300">0</span>`;
-      }
-    } else {
-      // 2行目以降は空欄
-      equipmentDisplay = '';
-      equipmentDisplaySB = '';
-    }
-
     // データ属性にステータス情報を保存
     tr.dataset.railStatus = row['レールステータス'];
     tr.dataset.brushStatus = row['ブラシステータス'];
@@ -211,8 +172,6 @@ function renderManagement(list) {
     tr.dataset.shopName = row['店舗名'];
     tr.dataset.isSubsidy = isSubsidyTarget;
     tr.dataset.nextWorkMemo = memoContent;
-    tr.dataset.cleanerCount = cleanerCount;
-    tr.dataset.sbCount = sbCount;
 
     tr.innerHTML = `
       <td class="p-3 text-center">
@@ -222,8 +181,6 @@ function renderManagement(list) {
       <td class="p-3 text-center">${row['区別']}</td>
       <td class="p-3 text-right font-mono font-bold">${Number(row['累計台数']).toLocaleString()}</td>
       <td class="p-3 text-right font-mono text-blue-700 bg-blue-50">${Number(row['月平均台数'] || 0).toLocaleString()}</td>
-      <td class="p-3 text-center bg-green-50">${equipmentDisplay}</td>
-      <td class="p-3 text-center bg-orange-50">${equipmentDisplaySB}</td>
       <td class="p-3 ${railColor}">${railStatusText}</td>
       <td class="p-3 ${brushColor}">${brushStatusText}</td>
       <td class="p-3 ${bodyColor}">${bodyStatus}</td>

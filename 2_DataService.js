@@ -4,7 +4,6 @@
  */
 function getEquipmentMasterData() {
   const sheet = getSheet(getConfig().SHEET_NAMES.MASTER_EQUIPMENT);
-  // データがある範囲だけを取得（無駄な空行を読まない）
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
   
@@ -51,18 +50,15 @@ function calculateExchangeStatus(masterItem, currentAccumulatedCount, avgMonthly
   const railMonths = getMonthsDiff(masterItem['レール交換実施日']);
   const brushMonths = getMonthsDiff(masterItem['布ブラシ最終交換日']);
 
-  // --- レール判定 ---
   let railStatus = status.NORMAL;
   const hasRailExchanged = masterItem['レール交換実施日'] && !isNaN(new Date(masterItem['レール交換実施日']).getTime());
 
-  // 未交換の場合のみ判定
   if (!hasRailExchanged) {
     if (currentAccumulatedCount >= criteria.RAIL_WHEEL.THRESHOLD) {
       railStatus = status.NOTICE;
     }
   }
 
-  // --- ブラシ判定 ---
   let brushStatus = status.NORMAL;
   if (masterItem['ブラシ種類'] === '布') {
     if (countSinceBrushExchange >= criteria.CLOTH_BRUSH.SECOND || brushMonths >= criteria.CLOTH_BRUSH.MONTHS_WARNING * 2) brushStatus = status.EXCHANGE_2;
@@ -70,18 +66,15 @@ function calculateExchangeStatus(masterItem, currentAccumulatedCount, avgMonthly
   } else { brushStatus = '対象外'; }
   if (currentAccumulatedCount < 1000 && masterItem['ブラシ種類'] === '布') brushStatus = status.NORMAL;
 
-  // --- 本体判定（新ロジック） ---
   let bodyStatus = status.NORMAL;
-  const currentMonth = today.getMonth() + 1; // 1-12
+  const currentMonth = today.getMonth() + 1;
   
   if (currentMonth === 1) {
-    // 1月の場合：12ヶ月後の予測で判定
     const forecastCount = countSinceBodyExchange + (avgMonthlyCount * criteria.MACHINE_BODY.FORECAST_MONTHS);
     if (forecastCount >= criteria.MACHINE_BODY.THRESHOLD) {
       bodyStatus = status.PREPARE;
     }
   } else {
-    // 2月以降：累計台数のみで判定
     if (countSinceBodyExchange >= criteria.MACHINE_BODY.THRESHOLD) {
       bodyStatus = status.PREPARE;
     }
@@ -95,15 +88,11 @@ function refreshStatusSummary() {
   const monthlyData = getMonthlyData();
   const config = getConfig();
   
-  // ★設備構成マップを取得
   const equipmentMap = getAllShopEquipment();
 
-  // ★高速化ポイント: 月次データを「店舗コード_区別」をキーにした辞書(Map)に事前変換
-  // これにより、ループの中で毎回全データを検索する必要がなくなる（計算量が激減）
   const monthlyDataMap = new Map();
   
   monthlyData.forEach(r => {
-    // 累計台数が有効なもののみ対象
     if (r['累計台数'] !== "" && r['累計台数'] != null) {
       const key = `${r['店舗コード']}_${r['区別']}`;
       if (!monthlyDataMap.has(key)) {
@@ -119,11 +108,9 @@ function refreshStatusSummary() {
     const toDate = (d) => (d instanceof Date && !isNaN(d)) ? d : null;
     const bodyInstallDate = toDate(item['本体設置日']);
     
-    // ★高速化: 辞書から一発で対象データ群を取得
     const key = `${item['店舗コード']}_${item['区別']}`;
     const targetRecords = monthlyDataMap.get(key) || [];
     
-    // 最新レコード特定（日付＞数値）
     const latestRecord = targetRecords.sort((a, b) => {
       const dateA = new Date(a['年月']);
       const dateB = new Date(b['年月']);
@@ -141,13 +128,10 @@ function refreshStatusSummary() {
       if (installMonth > recordMonth) count = 0; 
     }
 
-    // 月平均台数の計算（日次台数の平均）
     let avgCount = 0;
     if (targetRecords.length > 0) {
-      // 日次台数の合計を計算
       const totalDaily = targetRecords.reduce((sum, r) => sum + (parseFloat(r['日次台数']) || 0), 0);
-      // 日次台数の平均を計算（直近12ヶ月分を使用）
-      const recentRecords = targetRecords.slice(-12); // 直近12ヶ月
+      const recentRecords = targetRecords.slice(-12);
       const recentTotal = recentRecords.reduce((sum, r) => sum + (parseFloat(r['日次台数']) || 0), 0);
       avgCount = Math.round(recentTotal / recentRecords.length);
     }
@@ -164,7 +148,6 @@ function refreshStatusSummary() {
     let isSubsidy = config.SUBSIDY_TARGET_SHOPS.some(s => item['店舗名'].includes(s));
     const memo = item['次回付帯作業メモ'] || "";
     
-    // ★設備構成情報を取得
     const shopCode = item['店舗コード'];
     const equipment = equipmentMap[shopCode] || { cleanerCount: 0, sbCount: 0 };
 
@@ -174,17 +157,14 @@ function refreshStatusSummary() {
       item['ブラシ種類'] === '布' ? '布' : 'スポンジ', res.railMonths,
       isSubsidy,
       memo,
-      // ★ここから追加
       equipment.cleanerCount,
       equipment.sbCount
-      // ★ここまで追加
     ];
   }).filter(i => i !== null);
 
   const sheet = getSheet(config.SHEET_NAMES.STATUS_SUMMARY);
   sheet.clearContents();
   
-  // ★ヘッダーに列を追加
   const headers = ['店舗コード', '店舗名', '区別', '累計台数', '月平均台数', '本体設置日', 
                    'レールステータス', 'ブラシステータス', '本体ステータス', '布交換対象', 
                    'railMonths', 'isSubsidy', 'nextWorkMemo', 'cleanerCount', 'sbCount'];
@@ -202,7 +182,6 @@ function refreshStatusSummary() {
 
 function getCarWashListCached() {
   const sheet = getSheet(getConfig().SHEET_NAMES.STATUS_SUMMARY);
-  // 全範囲ではなくデータがある部分だけを取得
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
   
@@ -229,10 +208,8 @@ function getShopEquipment(shopCode) {
   
   const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
   
-  // 設備構成情報が存在する行を見つける
   for (let i = 0; i < data.length; i++) {
     if (data[i][0] === shopCode) {
-      // J列（総設置枠数）、K列（クリーナー台数）、L列（SB台数）のいずれかが存在する場合
       const hasTotalSlots = data[i][9] !== '' && data[i][9] != null;
       const hasCleanerCount = data[i][10] !== '' && data[i][10] != null;
       const hasSbCount = data[i][11] !== '' && data[i][11] != null;
@@ -241,10 +218,10 @@ function getShopEquipment(shopCode) {
         return {
           shopCode: data[i][0],
           shopName: data[i][1],
-          totalSlots: data[i][9] !== '' && data[i][9] != null ? data[i][9] : 0,      // J列: 総設置枠数
-          cleanerCount: data[i][10] !== '' && data[i][10] != null ? data[i][10] : 0,   // K列: クリーナー台数
-          sbCount: data[i][11] !== '' && data[i][11] != null ? data[i][11] : 0,        // L列: SB台数
-          mattDate: data[i][12] || null     // M列: マット設置日
+          totalSlots: data[i][9] !== '' && data[i][9] != null ? data[i][9] : 0,
+          cleanerCount: data[i][10] !== '' && data[i][10] != null ? data[i][10] : 0,
+          sbCount: data[i][11] !== '' && data[i][11] != null ? data[i][11] : 0,
+          mattDate: data[i][12] || null
         };
       }
     }
@@ -253,7 +230,7 @@ function getShopEquipment(shopCode) {
 }
 
 /**
- * 全店舗の設備構成を取得（店舗コードをキーにしたマップ）
+ * 全店舗の設備構成を取得（店舗コードをキーにしたマップ）★修正版
  * @return {Object} 店舗コードをキーとした設備構成マップ
  */
 function getAllShopEquipment() {
@@ -266,23 +243,33 @@ function getAllShopEquipment() {
   
   for (let i = 0; i < data.length; i++) {
     const shopCode = data[i][0];
+    
+    // 既に処理済みの店舗はスキップ
     if (equipmentMap[shopCode]) continue;
     
-    // J列（総設置枠数）、K列（クリーナー台数）、L列（SB台数）のいずれかが存在する場合
-    const hasTotalSlots = data[i][9] !== '' && data[i][9] !== null;
-    const hasCleanerCount = data[i][10] !== '' && data[i][10] !== null;
-    const hasSbCount = data[i][11] !== '' && data[i][11] !== null;
+    // データの型を確認してから判定
+    const totalSlots = data[i][9];
+    const cleanerCount = data[i][10];
+    const sbCount = data[i][11];
     
+    // 数値型または文字列として値が存在するかチェック
+    const hasTotalSlots = (typeof totalSlots === 'number' || (typeof totalSlots === 'string' && totalSlots !== ''));
+    const hasCleanerCount = (typeof cleanerCount === 'number' || (typeof cleanerCount === 'string' && cleanerCount !== ''));
+    const hasSbCount = (typeof sbCount === 'number' || (typeof sbCount === 'string' && sbCount !== ''));
+    
+    // いずれかのデータが存在する場合のみ登録
     if (hasTotalSlots || hasCleanerCount || hasSbCount) {
       equipmentMap[shopCode] = {
         shopCode: shopCode,
         shopName: data[i][1],
-        totalSlots: data[i][9] !== '' && data[i][9] !== null ? data[i][9] : 0,
-        cleanerCount: data[i][10] !== '' && data[i][10] !== null ? data[i][10] : 0,
-        sbCount: data[i][11] !== '' && data[i][11] !== null ? data[i][11] : 0,
+        totalSlots: typeof totalSlots === 'number' ? totalSlots : (totalSlots || 0),
+        cleanerCount: typeof cleanerCount === 'number' ? cleanerCount : (cleanerCount || 0),
+        sbCount: typeof sbCount === 'number' ? sbCount : (sbCount || 0),
         mattDate: data[i][12] || null
       };
     }
   }
+  
+  Logger.log(`✅ 設備構成取得完了: ${Object.keys(equipmentMap).length}店舗`);
   return equipmentMap;
 }

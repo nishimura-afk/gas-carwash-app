@@ -113,43 +113,79 @@ function renderStatusBars(projects) {
     container.innerHTML = '<div class="p-8 text-center text-gray-500">現在進行中の案件はありません</div>';
     return;
   }
+  
   const steps = { '見積依頼中': 1, '見積受領': 2, '発注済': 3, '未完了': 4 };
-  projects.sort((a, b) => (steps[b.status] || 0) - (steps[a.status] || 0));
-
-  projects.forEach(p => {
-    const currentStep = steps[p.status] || 0;
-    const dateDisplay = p.date ? `<span class="ml-2 text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded"><i class="fas fa-clock mr-1"></i>${p.date}</span>` : '';
-    const progressWidth = (currentStep / 4) * 100;
-    const barColor = currentStep === 4 ? 'bg-green-500' : 'bg-blue-500';
-    let statusLabel = p.status;
-    if(p.status === '未完了') statusLabel = '日程確定済';
-
-    let actionBtn = '';
-    let backBtn = '';
-    if (p.status === '見積依頼中') {
-      actionBtn = `<button onclick="updateStatus('${p.id}', '見積受領')" class="bg-indigo-500 text-white px-3 py-1.5 rounded text-xs hover:bg-indigo-600 shadow font-bold">見積受領へ <i class="fas fa-arrow-right ml-1"></i></button>`;
-    } else if (p.status === '見積受領') {
-      actionBtn = `<button onclick="updateStatus('${p.id}', '発注済')" class="bg-orange-500 text-white px-3 py-1.5 rounded text-xs hover:bg-orange-600 shadow font-bold">発注済へ <i class="fas fa-arrow-right ml-1"></i></button>`;
-      backBtn = `<button onclick="revertStatus('${p.id}', '見積依頼中')" class="text-gray-400 hover:text-gray-600 px-2" title="ひとつ前に戻す"><i class="fas fa-undo"></i></button>`;
-    } else if (p.status === '発注済') {
-      actionBtn = `<button onclick="openScheduleModal('${p.id}', '${p.shopName}', '${p.part}')" class="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 shadow font-bold"><i class="fas fa-calendar-plus mr-1"></i>日程登録</button>`;
-      backBtn = `<button onclick="revertStatus('${p.id}', '見積受領')" class="text-gray-400 hover:text-gray-600 px-2" title="ひとつ前に戻す"><i class="fas fa-undo"></i></button>`;
-    } else if (p.status === '未完了') { 
-      actionBtn = `<button onclick="openProgCompModal('${p.id}', '${p.date}', '${p.part}')" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs hover:bg-blue-700 shadow font-bold"><i class="fas fa-check mr-1"></i>完了報告</button>`;
-      backBtn = `<button onclick="revertStatus('${p.id}', '発注済')" class="text-gray-400 hover:text-gray-600 px-2" title="日程を取り消して発注済に戻す"><i class="fas fa-undo"></i></button>`;
-    }
-
-    const item = document.createElement('div');
-    item.className = "p-3 hover:bg-gray-50 grid grid-cols-12 gap-4 items-center";
-    item.innerHTML = `
-      <div class="col-span-4 md:col-span-3 pl-2"><div class="font-bold text-gray-800 text-sm">${p.shopName}</div><div class="text-xs text-gray-500">区分: ${p.machineId} | ${p.part}</div><div class="mt-1">${dateDisplay}</div></div>
-      <div class="col-span-4 md:col-span-5 relative h-6 bg-gray-200 rounded-full overflow-hidden shadow-inner">
-        <div class="absolute inset-0 grid grid-cols-4 w-full h-full"><div class="border-r border-white/50"></div><div class="border-r border-white/50"></div><div class="border-r border-white/50"></div><div></div></div>
-        <div class="absolute top-0 left-0 h-full ${barColor} flex items-center justify-end pr-2 text-white text-[10px] font-bold transition-all duration-500" style="width: ${progressWidth}%">${statusLabel}</div>
-      </div>
-      <div class="col-span-4 md:col-span-4 text-right flex justify-end items-center gap-2">${backBtn}${actionBtn}<button onclick="deleteProject('${p.id}')" class="text-gray-300 hover:text-red-500 transition ml-2 border-l pl-2" title="案件削除"><i class="fas fa-trash-alt"></i></button></div>
+  
+  // 案件を4カテゴリに分類
+  const bodyProjects = projects.filter(p => p.part === '本体');
+  const railProjects = projects.filter(p => p.part === 'レール車輪');
+  const brushProjects = projects.filter(p => p.part === '布ブラシ');
+  const otherProjects = projects.filter(p => !['本体', 'レール車輪', '布ブラシ'].includes(p.part));
+  
+  // 各カテゴリ内でステータス順にソート（進んでいるものが上）
+  const sortByStatus = (a, b) => (steps[b.status] || 0) - (steps[a.status] || 0);
+  bodyProjects.sort(sortByStatus);
+  railProjects.sort(sortByStatus);
+  brushProjects.sort(sortByStatus);
+  otherProjects.sort(sortByStatus);
+  
+  // カテゴリごとにセクションを作成（Tailwindの動的クラス名は使わず直接指定）
+  const categories = [
+    { title: '本体更新', icon: 'fa-car', headerClass: 'bg-red-50 border-red-200', textClass: 'text-red-800', iconClass: 'text-red-600', countClass: 'text-red-600', projects: bodyProjects },
+    { title: 'レール・車輪交換', icon: 'fa-cog', headerClass: 'bg-orange-50 border-orange-200', textClass: 'text-orange-800', iconClass: 'text-orange-600', countClass: 'text-orange-600', projects: railProjects },
+    { title: '布ブラシ交換', icon: 'fa-brush', headerClass: 'bg-blue-50 border-blue-200', textClass: 'text-blue-800', iconClass: 'text-blue-600', countClass: 'text-blue-600', projects: brushProjects },
+    { title: 'その他', icon: 'fa-wrench', headerClass: 'bg-gray-50 border-gray-200', textClass: 'text-gray-800', iconClass: 'text-gray-600', countClass: 'text-gray-600', projects: otherProjects }
+  ];
+  
+  categories.forEach(cat => {
+    if (cat.projects.length === 0) return;
+    
+    // カテゴリヘッダー
+    const header = document.createElement('div');
+    header.className = `${cat.headerClass} p-3 border-b flex items-center`;
+    header.innerHTML = `
+      <i class="fas ${cat.icon} ${cat.iconClass} mr-2"></i>
+      <span class="font-bold ${cat.textClass}">${cat.title}</span>
+      <span class="ml-2 text-sm ${cat.countClass}">(${cat.projects.length}件)</span>
     `;
-    container.appendChild(item);
+    container.appendChild(header);
+    
+    // 各案件を表示
+    cat.projects.forEach(p => {
+      const currentStep = steps[p.status] || 0;
+      const dateDisplay = p.date ? `<span class="ml-2 text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded"><i class="fas fa-clock mr-1"></i>${p.date}</span>` : '';
+      const progressWidth = (currentStep / 4) * 100;
+      const barColor = currentStep === 4 ? 'bg-green-500' : 'bg-blue-500';
+      let statusLabel = p.status;
+      if(p.status === '未完了') statusLabel = '日程確定済';
+
+      let actionBtn = '';
+      let backBtn = '';
+      if (p.status === '見積依頼中') {
+        actionBtn = `<button onclick="updateStatus('${p.id}', '見積受領')" class="bg-indigo-500 text-white px-3 py-1.5 rounded text-xs hover:bg-indigo-600 shadow font-bold">見積受領へ <i class="fas fa-arrow-right ml-1"></i></button>`;
+      } else if (p.status === '見積受領') {
+        actionBtn = `<button onclick="updateStatus('${p.id}', '発注済')" class="bg-orange-500 text-white px-3 py-1.5 rounded text-xs hover:bg-orange-600 shadow font-bold">発注済へ <i class="fas fa-arrow-right ml-1"></i></button>`;
+        backBtn = `<button onclick="revertStatus('${p.id}', '見積依頼中')" class="text-gray-400 hover:text-gray-600 px-2" title="ひとつ前に戻す"><i class="fas fa-undo"></i></button>`;
+      } else if (p.status === '発注済') {
+        actionBtn = `<button onclick="openScheduleModal('${p.id}', '${p.shopName}', '${p.part}')" class="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 shadow font-bold"><i class="fas fa-calendar-plus mr-1"></i>日程登録</button>`;
+        backBtn = `<button onclick="revertStatus('${p.id}', '見積受領')" class="text-gray-400 hover:text-gray-600 px-2" title="ひとつ前に戻す"><i class="fas fa-undo"></i></button>`;
+      } else if (p.status === '未完了') { 
+        actionBtn = `<button onclick="openProgCompModal('${p.id}', '${p.date}', '${p.part}')" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs hover:bg-blue-700 shadow font-bold"><i class="fas fa-check mr-1"></i>完了報告</button>`;
+        backBtn = `<button onclick="revertStatus('${p.id}', '発注済')" class="text-gray-400 hover:text-gray-600 px-2" title="日程を取り消して発注済に戻す"><i class="fas fa-undo"></i></button>`;
+      }
+
+      const item = document.createElement('div');
+      item.className = "p-3 hover:bg-gray-50 grid grid-cols-12 gap-4 items-center border-b";
+      item.innerHTML = `
+        <div class="col-span-4 md:col-span-3 pl-2"><div class="font-bold text-gray-800 text-sm">${p.shopName}</div><div class="text-xs text-gray-500">区分: ${p.machineId}</div><div class="mt-1">${dateDisplay}</div></div>
+        <div class="col-span-4 md:col-span-5 relative h-6 bg-gray-200 rounded-full overflow-hidden shadow-inner">
+          <div class="absolute inset-0 grid grid-cols-4 w-full h-full"><div class="border-r border-white/50"></div><div class="border-r border-white/50"></div><div class="border-r border-white/50"></div><div></div></div>
+          <div class="absolute top-0 left-0 h-full ${barColor} flex items-center justify-end pr-2 text-white text-[10px] font-bold transition-all duration-500" style="width: ${progressWidth}%">${statusLabel}</div>
+        </div>
+        <div class="col-span-4 md:col-span-4 text-right flex justify-end items-center gap-2">${backBtn}${actionBtn}<button onclick="deleteProject('${p.id}')" class="text-gray-300 hover:text-red-500 transition ml-2 border-l pl-2" title="案件削除"><i class="fas fa-trash-alt"></i></button></div>
+      `;
+      container.appendChild(item);
+    });
   });
 }
 

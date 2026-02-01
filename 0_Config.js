@@ -12,8 +12,7 @@ function getConfig() {
     MONTHLY_DATA: '月次データ',
     SCHEDULE: '交換スケジュール',
     HISTORY: '交換履歴',
-    STATUS_SUMMARY: 'ステータス集計',
-    EQUIPMENT_HISTORY: '設備構成変更履歴'
+    STATUS_SUMMARY: 'ステータス集計'
   };
 
   // 交換基準
