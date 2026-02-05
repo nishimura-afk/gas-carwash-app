@@ -351,35 +351,48 @@ function extractCumulativeCountsFromReport(text) {
     }
   }
 
+  // 数字文字列をパース（全角数字・カンマ対応）
+  function parseCountStr(str) {
+    if (!str) return 0;
+    var n = str.replace(/[０-９]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/,/g, "").replace(/\s/g, "").trim();
+    var num = parseInt(n, 10);
+    return isNaN(num) ? 0 : num;
+  }
+
+  // 半角・全角の数字にマッチする部分（キャプチャ用）
+  var numPart = "([0-9０-９][0-9０-９,\\s]*)";
+
   // パターン1: 「左機 51541台」「真ん中機 58,624台」など
   var pattern1 = /(左機?|真ん中機?|中央機?|右機?|布機?)\s*[：:]?\s*(\d[\d,]*)\s*台?/g;
   var match;
   while ((match = pattern1.exec(text)) !== null) {
     var posKey = match[1];
-    var count = parseInt(match[2].replace(/,/g, ""), 10);
+    var count = parseCountStr(match[2]);
+    if (count <= 0) continue;
     var position = positionMap[posKey] || posKey;
     addOrUpdate(position, count);
   }
 
-  // パターン1b: 備考欄など「左記28436台」「右記31133台」「左機○○」「右側○○」のゆらぎ
+  // パターン1b: 備考欄「左記28436台」「右記31133台」「左 記 28436台」など（スペース・全角数字のゆらぎ対応）
   var bikouPatterns = [
-    { regex: /(左記|左機|左側|左)\s*(\d[\d,]*)\s*台/g, position: "左" },
-    { regex: /(右記|右機|右側|右)\s*(\d[\d,]*)\s*台/g, position: "右" },
-    { regex: /(中央記|中央機|中央側|中央|真ん中)\s*(\d[\d,]*)\s*台/g, position: "中央" }
+    { regex: new RegExp("(左記|左\\s*記|左機|左側|左)\\s*" + numPart + "\\s*台", "g"), position: "左" },
+    { regex: new RegExp("(右記|右\\s*記|右機|右側|右)\\s*" + numPart + "\\s*台", "g"), position: "右" },
+    { regex: new RegExp("(中央記|中央\\s*記|中央機|中央側|中央|真ん中)\\s*" + numPart + "\\s*台", "g"), position: "中央" }
   ];
   for (var b = 0; b < bikouPatterns.length; b++) {
     var bp = bikouPatterns[b];
     while ((match = bp.regex.exec(text)) !== null) {
-      var count = parseInt(match[2].replace(/,/g, ""), 10);
+      var count = parseCountStr(match[2]);
+      if (count <= 0) continue;
       addOrUpdate(bp.position, count);
     }
   }
 
   if (results.length === 0) {
-    var pattern2 = /累計[洗車]*台数[：:\s]*(\d[\d,]*)/g;
+    var pattern2 = new RegExp("累計[洗車]*台数[：:\\s]*" + numPart, "g");
     while ((match = pattern2.exec(text)) !== null) {
-      var count2 = parseInt(match[1].replace(/,/g, ""), 10);
-      results.push({ position: "中央", count: count2 });
+      var count2 = parseCountStr(match[1]);
+      if (count2 > 0) results.push({ position: "中央", count: count2 });
     }
   }
 
@@ -387,15 +400,15 @@ function extractCumulativeCountsFromReport(text) {
     var pattern3 = /累計[洗車]*台数[】\]]\s*([\s\S]{0,200})/;
     var block = text.match(pattern3);
     if (block) {
-      var numPattern = /(\d[\d,]+)/g;
+      var numPattern = /([0-9０-９][0-9０-９,\s]+)/g;
       var positions = ["左", "中央", "右"];
       var idx = 0;
       while ((match = numPattern.exec(block[1])) !== null && idx < 3) {
-        results.push({
-          position: positions[idx],
-          count: parseInt(match[1].replace(/,/g, ""), 10)
-        });
-        idx++;
+        var c = parseCountStr(match[1]);
+        if (c > 0) {
+          results.push({ position: positions[idx], count: c });
+          idx++;
+        }
       }
     }
   }
