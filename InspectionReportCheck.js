@@ -33,8 +33,8 @@ var INSPECTION_REPORT_CONFIG = {
   FOLDER_DONE: "アピカ点検報告書_処理済み",
   TEMP_FOLDER: "アピカ点検_一時変換",
 
-  // 通知先メールアドレス（未設定時は getConfig().ADMIN_EMAIL を使用）
-  NOTIFY_EMAIL: null,
+  // 通知先メールアドレス
+  NOTIFY_EMAIL: "nishimura@selfix.jp",
 
   // 累計台数のズレ許容範囲（月平均の何倍までOKか）
   THRESHOLD_MONTHS: 2
