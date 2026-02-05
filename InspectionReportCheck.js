@@ -146,29 +146,34 @@ function processInspectionReports() {
 // ============================================================
 
 function processSingleInspectionPdf(file, appData) {
+  var today = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyyMMdd");
+  var originalName = file.getName();
+
   try {
     var text = extractTextFromInspectionPdf(file);
     if (!text) {
-      return { fileName: file.getName(), error: "テキスト抽出失敗" };
+      movePdfToDoneFolder(file, "処理エラー_テキスト抽出失敗_" + today, originalName);
+      return { fileName: originalName, error: "テキスト抽出失敗" };
     }
 
     Logger.log("抽出テキスト（先頭500文字）:\n" + text.substring(0, 500));
 
     var storeName = extractStoreNameFromReport(text);
     if (!storeName) {
-      return { fileName: file.getName(), error: "店舗名を特定できません" };
+      movePdfToDoneFolder(file, "処理エラー_店舗名不明_" + today, originalName);
+      return { fileName: originalName, error: "店舗名を特定できません" };
     }
     Logger.log("店舗名: " + storeName);
 
     var reportCounts = extractCumulativeCountsFromReport(text);
     if (reportCounts.length === 0) {
-      return { fileName: file.getName(), storeName: storeName, error: "累計台数を読み取れません" };
+      movePdfToDoneFolder(file, "点検報告書_" + storeName + "SS_累計台数不明_" + today, originalName);
+      return { fileName: originalName, storeName: storeName, error: "累計台数を読み取れません" };
     }
     Logger.log("報告書の累計台数: " + JSON.stringify(reportCounts));
 
     var comparisons = compareInspectionWithAppData(storeName, reportCounts, appData);
 
-    var today = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyyMMdd");
     var newName = "点検報告書_" + storeName + "SS_" + today + ".pdf";
     file.setName(newName);
 
@@ -191,7 +196,33 @@ function processSingleInspectionPdf(file, appData) {
     };
   } catch (e) {
     Logger.log("エラー: " + e.toString());
-    return { fileName: file.getName(), error: e.toString() };
+    movePdfToDoneFolder(file, "処理エラー_" + today, originalName);
+    return { fileName: originalName, error: e.toString() };
+  }
+}
+
+/**
+ * エラー時でも受信フォルダに残さないよう、PDFを処理済みフォルダへ移動する
+ */
+function movePdfToDoneFolder(file, baseName, originalName) {
+  try {
+    var safeName = baseName + ".pdf";
+    if (safeName.length > 200) {
+      safeName = baseName.substring(0, 196) + ".pdf";
+    }
+    file.setName(safeName);
+
+    var doneFolder = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
+    if (doneFolder) {
+      doneFolder.addFile(file);
+      var inbox = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
+      if (inbox) {
+        inbox.removeFile(file);
+      }
+      Logger.log("エラーのため処理済みへ移動: " + safeName);
+    }
+  } catch (moveErr) {
+    Logger.log("移動エラー: " + moveErr.toString());
   }
 }
 
@@ -234,10 +265,13 @@ function extractTextFromInspectionPdf(pdfFile) {
 // ============================================================
 
 function extractStoreNameFromReport(text) {
+  // 「セルフィックス◯◯SS」「セルフィックス◯◯給油所」など
   var patterns = [
     /セルフィックス(.+?)SS/,
     /セルフィックス(.+?)ＳＳ/,
-    /ｾﾙﾌｨｯｸｽ(.+?)SS/
+    /セルフィックス(.+?)給油所/,
+    /ｾﾙﾌｨｯｸｽ(.+?)SS/,
+    /ｾﾙﾌｨｯｸｽ(.+?)給油所/
   ];
 
   for (var i = 0; i < patterns.length; i++) {
@@ -297,6 +331,7 @@ function normalizeInspectionStoreName(rawName) {
 /**
  * テキストから累計洗車台数を抽出
  * 戻り値: [{position: "左", count: 51541}, ...]
+ * 備考欄の「左記○○台、右記○○台」や「左機／右側」など書き方のゆらぎに対応
  */
 function extractCumulativeCountsFromReport(text) {
   var results = [];
@@ -307,18 +342,36 @@ function extractCumulativeCountsFromReport(text) {
     "布機": "左"
   };
 
+  function addOrUpdate(position, count) {
+    var existing = results.find(function(r) { return r.position === position; });
+    if (existing) {
+      if (count > existing.count) existing.count = count;
+    } else {
+      results.push({ position: position, count: count });
+    }
+  }
+
+  // パターン1: 「左機 51541台」「真ん中機 58,624台」など
   var pattern1 = /(左機?|真ん中機?|中央機?|右機?|布機?)\s*[：:]?\s*(\d[\d,]*)\s*台?/g;
   var match;
   while ((match = pattern1.exec(text)) !== null) {
     var posKey = match[1];
     var count = parseInt(match[2].replace(/,/g, ""), 10);
     var position = positionMap[posKey] || posKey;
+    addOrUpdate(position, count);
+  }
 
-    var existing = results.find(function(r) { return r.position === position; });
-    if (existing) {
-      if (count > existing.count) existing.count = count;
-    } else {
-      results.push({ position: position, count: count });
+  // パターン1b: 備考欄など「左記28436台」「右記31133台」「左機○○」「右側○○」のゆらぎ
+  var bikouPatterns = [
+    { regex: /(左記|左機|左側|左)\s*(\d[\d,]*)\s*台/g, position: "左" },
+    { regex: /(右記|右機|右側|右)\s*(\d[\d,]*)\s*台/g, position: "右" },
+    { regex: /(中央記|中央機|中央側|中央|真ん中)\s*(\d[\d,]*)\s*台/g, position: "中央" }
+  ];
+  for (var b = 0; b < bikouPatterns.length; b++) {
+    var bp = bikouPatterns[b];
+    while ((match = bp.regex.exec(text)) !== null) {
+      var count = parseInt(match[2].replace(/,/g, ""), 10);
+      addOrUpdate(bp.position, count);
     }
   }
 
