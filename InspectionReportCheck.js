@@ -439,7 +439,12 @@ function compareInspectionWithAppData(storeName, reportCounts, appData) {
     } else if (diff > 0) {
       status = "🔴 報告書の台数が多すぎる（+" + diff.toLocaleString() + "）";
     } else {
-      status = "🔴 報告書の台数が少なすぎる（" + diff.toLocaleString() + "）";
+      // 報告書の累計がアプリより少ない → 昔の報告書の可能性（要確認メールにはしない）
+      if (report.count < app.count) {
+        status = "⚠ 報告書が古い可能性（報告＜アプリ）";
+      } else {
+        status = "🔴 報告書の台数が少なすぎる（" + diff.toLocaleString() + "）";
+      }
     }
 
     comparisons.push({
