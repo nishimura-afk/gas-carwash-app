@@ -373,11 +373,12 @@ function extractCumulativeCountsFromReport(text) {
     addOrUpdate(position, count);
   }
 
-  // パターン1b: 備考欄「左記28436台」「右記31133台」「左 記 28436台」など（スペース・全角数字のゆらぎ対応）
+  // パターン1b: 備考欄「左記28436台」「左機→ 28436台」「右側→31133台」など（矢印・スペース・全角数字のゆらぎ対応）
+  var arrowPart = "[\\s→⇒]*";  // 矢印やスペースを挟む場合
   var bikouPatterns = [
-    { regex: new RegExp("(左記|左\\s*記|左機|左側|左)\\s*" + numPart + "\\s*台", "g"), position: "左" },
-    { regex: new RegExp("(右記|右\\s*記|右機|右側|右)\\s*" + numPart + "\\s*台", "g"), position: "右" },
-    { regex: new RegExp("(中央記|中央\\s*記|中央機|中央側|中央|真ん中)\\s*" + numPart + "\\s*台", "g"), position: "中央" }
+    { regex: new RegExp("(左記|左\\s*記|左機|左側|左)" + arrowPart + numPart + "\\s*台", "g"), position: "左" },
+    { regex: new RegExp("(右記|右\\s*記|右機|右側|右)" + arrowPart + numPart + "\\s*台", "g"), position: "右" },
+    { regex: new RegExp("(中央記|中央\\s*記|中央機|中央側|中央|真ん中)" + arrowPart + numPart + "\\s*台", "g"), position: "中央" }
   ];
   for (var b = 0; b < bikouPatterns.length; b++) {
     var bp = bikouPatterns[b];
