@@ -36,8 +36,8 @@ var INSPECTION_REPORT_CONFIG = {
   // 通知先メールアドレス
   NOTIFY_EMAIL: "nishimura@selfix.jp",
 
-  // 累計台数のズレ許容範囲（月平均の何倍までOKか）
-  THRESHOLD_MONTHS: 2
+  // 累計台数のズレ許容範囲（月平均の何倍までOKか）1＝月平均以内
+  THRESHOLD_MONTHS: 1
 };
 
 // ============================================================
@@ -135,7 +135,7 @@ function processInspectionReports() {
   });
 
   if (results.length > 0) {
-    sendInspectionResultEmail(results);
+    sendInspectionResultEmail(results);  // 異常があるときだけ送信（本文も異常のみ）
   }
 
   Logger.log("\n=== 処理完了: " + results.length + " 件 ===");
@@ -172,7 +172,12 @@ function processSingleInspectionPdf(file, appData) {
     }
     Logger.log("報告書の累計台数: " + JSON.stringify(reportCounts));
 
-    var comparisons = compareInspectionWithAppData(storeName, reportCounts, appData);
+    var reportDate = extractReportDate(text);  // 訪問日（なければ null）
+    if (reportDate) {
+      Logger.log("報告書の訪問日: " + Utilities.formatDate(reportDate, "Asia/Tokyo", "yyyy/MM/dd"));
+    }
+
+    var comparisons = compareInspectionWithAppData(storeName, reportCounts, appData, reportDate);
 
     var newName = "点検報告書_" + storeName + "SS_" + today + ".pdf";
     file.setName(newName);
@@ -263,6 +268,31 @@ function extractTextFromInspectionPdf(pdfFile) {
 // ============================================================
 // テキスト解析
 // ============================================================
+
+/**
+ * 報告書テキストから訪問日を抽出する（例: 2026年02月04日）
+ * 戻り値: Date（Asia/Tokyo）または null
+ */
+function extractReportDate(text) {
+  if (!text) return null;
+  // 訪問日の直後の日付（半角・全角数字対応）
+  var match = text.match(/訪問日\s*([0-9０-９]{4})年([0-9０-９]{1,2})月([0-9０-９]{1,2})日/);
+  if (!match) return null;
+  var toHalf = function(s) {
+    return s.replace(/[０-９]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  };
+  var y = parseInt(toHalf(match[1]), 10);
+  var m = parseInt(toHalf(match[2]), 10) - 1;
+  var d = parseInt(toHalf(match[3]), 10);
+  if (isNaN(y) || isNaN(m) || isNaN(d) || m < 0 || m > 11 || d < 1 || d > 31) return null;
+  try {
+    var date = new Date(y, m, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m || date.getDate() !== d) return null;
+    return date;
+  } catch (e) {
+    return null;
+  }
+}
 
 function extractStoreNameFromReport(text) {
   // 「セルフィックス◯◯SS」「セルフィックス◯◯給油所」など
@@ -422,6 +452,15 @@ function extractCumulativeCountsFromReport(text) {
 // ============================================================
 
 /**
+ * アプリの累計台数の基準日（前月末日）を返す
+ * 例: 本日が2月5日なら 1月31日
+ */
+function getInspectionAppReferenceDate() {
+  var now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 0);  // 前月末
+}
+
+/**
  * 管理アプリのデータを取得（0_Config のスプレッドシート・ステータス集計を使用）
  * 戻り値: { "池田_右": {count, avg}, ... }
  */
@@ -476,9 +515,10 @@ function parseInspectionNumber(val) {
   return isNaN(num) ? 0 : num;
 }
 
-function compareInspectionWithAppData(storeName, reportCounts, appData) {
+function compareInspectionWithAppData(storeName, reportCounts, appData, reportDate) {
   var comparisons = [];
   var thresholdMonths = INSPECTION_REPORT_CONFIG.THRESHOLD_MONTHS;
+  var appRefDate = getInspectionAppReferenceDate();  // アプリの基準日＝前月末
 
   reportCounts.forEach(function(report) {
     var key = storeName + "_" + report.position;
@@ -496,7 +536,23 @@ function compareInspectionWithAppData(storeName, reportCounts, appData) {
       return;
     }
 
-    var predicted = app.count + Math.round(app.avg * 1.5);
+    // 予測値: アプリは前月末の累計。報告書の訪問日を考慮する
+    var predicted;
+    if (reportDate) {
+      var refTime = new Date(appRefDate.getFullYear(), appRefDate.getMonth(), appRefDate.getDate()).getTime();
+      var reportTime = new Date(reportDate.getFullYear(), reportDate.getMonth(), reportDate.getDate()).getTime();
+      if (reportTime <= refTime) {
+        // 訪問日が前月末以前 → 報告の累計はその時点なので、予測はアプリ値まで
+        predicted = app.count;
+      } else {
+        // 訪問日が前月末より後 → 前月末 + (訪問日までの日数 / 30) × 月平均
+        var daysDiff = (reportTime - refTime) / (24 * 60 * 60 * 1000);
+        predicted = app.count + Math.round(app.avg * (daysDiff / 30));
+      }
+    } else {
+      predicted = app.count + Math.round(app.avg * 1.5);  // 日付取れないときのフォールバック
+    }
+
     var diff = report.count - predicted;
     var threshold = app.avg * thresholdMonths;
 
@@ -537,11 +593,11 @@ function compareInspectionWithAppData(storeName, reportCounts, appData) {
 // ============================================================
 
 function sendInspectionResultEmail(results) {
-  var hasAlert = false;
-  var body = "洗車機点検報告書の自動チェック結果です。\n\n";
+  var body = "洗車機点検報告書の自動チェックで異常がありました。\n\n";
   body += "処理日時: " + Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy/MM/dd HH:mm") + "\n";
-  body += "処理件数: " + results.length + " 件\n";
   body += "━━━━━━━━━━━━━━━━━━━━━━\n\n";
+
+  var hasAlert = false;
 
   results.forEach(function(result) {
     if (result.error) {
@@ -551,38 +607,29 @@ function sendInspectionResultEmail(results) {
       return;
     }
 
-    body += "■ " + result.storeName + "SS（" + result.fileName + "）\n";
+    var abnormalComps = (result.comparisons || []).filter(function(comp) {
+      return comp.status && comp.status.indexOf("🔴") >= 0;
+    });
+    if (abnormalComps.length === 0) return;
 
-    result.comparisons.forEach(function(comp) {
+    hasAlert = true;
+    body += "■ " + result.storeName + "SS（" + result.fileName + "）\n";
+    abnormalComps.forEach(function(comp) {
       body += "  " + comp.position + "機: ";
       body += "報告=" + (comp.reportCount ? comp.reportCount.toLocaleString() : "?") + "台";
-
       if (comp.appCount !== null) {
         body += " / アプリ=" + comp.appCount.toLocaleString() + "台";
         body += " / 予測=" + comp.predicted.toLocaleString() + "台";
       }
-
       body += "\n  → " + comp.status + "\n";
-
-      if (comp.status.indexOf("🔴") >= 0) {
-        hasAlert = true;
-      }
     });
-
     body += "\n";
   });
 
+  if (!hasAlert) return;  // 異常がなければメール送信しない
+
   body += "━━━━━━━━━━━━━━━━━━━━━━\n";
-
-  if (hasAlert) {
-    body += "\n⚠ アラートがあります。確認してください。\n";
-  } else {
-    body += "\n✅ すべて正常範囲内です。\n";
-  }
-
-  var subject = hasAlert
-    ? "【要確認】洗車機点検報告書チェック結果"
-    : "【正常】洗車機点検報告書チェック結果";
+  body += "\n上記を確認してください。\n";
 
   var to = INSPECTION_REPORT_CONFIG.NOTIFY_EMAIL;
   if (!to) {
@@ -590,8 +637,8 @@ function sendInspectionResultEmail(results) {
     to = config.ADMIN_EMAIL || Session.getActiveUser().getEmail();
   }
 
-  MailApp.sendEmail(to, subject, body);
-  Logger.log("通知メール送信完了: " + subject);
+  MailApp.sendEmail(to, "【要確認】洗車機点検報告書チェックで異常あり", body);
+  Logger.log("通知メール送信完了（異常のみ）");
 }
 
 // ============================================================
