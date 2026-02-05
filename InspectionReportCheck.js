@@ -212,11 +212,10 @@ function extractTextFromInspectionPdf(pdfFile) {
       parents: [{ id: tempFolder.getId() }]
     };
 
+    // PDF→Google Doc 変換のみ。OCR は画像用のため PDF では使わない（指定するとエラーになる）
+    // テキスト付きPDFは変換時に文字が取り込まれる。スキャンPDFのみの場合は文字が取れない場合あり
     var blob = pdfFile.getBlob();
-    var docFile = Drive.Files.insert(resource, blob, {
-      ocr: true,
-      ocrLanguage: "ja"
-    });
+    var docFile = Drive.Files.insert(resource, blob);
 
     var doc = DocumentApp.openById(docFile.id);
     var text = doc.getBody().getText();
