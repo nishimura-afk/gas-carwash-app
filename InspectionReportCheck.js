@@ -21,16 +21,19 @@
  * 3. setupMonthlyTriggerInspectionReport() を実行して月次トリガーを設定
  *
  * 【運用】
- * 「アピカ点検報告書_受信」フォルダにPDFを入れると、processInspectionReports() 実行時に処理されます。
+ * フォルダ構成: 21_アピカ点検報告書 / アピカ点検報告書_受信 にPDFを入れると、
+ * processInspectionReports() 実行時に処理され、処理済みは同親直下の アピカ点検報告書_処理済み へ移動します。
  */
 
 // ============================================================
 // 設定（点検報告書チェック専用）
 // ============================================================
 var INSPECTION_REPORT_CONFIG = {
-  // Googleドライブのフォルダ名
+  // Googleドライブのフォルダ構成（親フォルダの直下に受信・処理済み・一時変換）
+  FOLDER_PARENT: "21_アピカ点検報告書",
   FOLDER_INBOX: "アピカ点検報告書_受信",
   FOLDER_DONE: "アピカ点検報告書_処理済み",
+  // 一時変換: PDF→Google Doc に変換する際、Drive API が一時的に Doc を作成するための置き場。テキスト取得後に即削除する。
   TEMP_FOLDER: "アピカ点検_一時変換",
 
   // 通知先メールアドレス
@@ -46,27 +49,40 @@ var INSPECTION_REPORT_CONFIG = {
 
 /**
  * 点検報告書用フォルダを自動作成する（最初に1回だけ実行）
+ * 構成: 21_アピカ点検報告書 / アピカ点検報告書_受信, 処理済み, 一時変換
  */
 function setupFoldersInspectionReport() {
   var root = DriveApp.getRootFolder();
-  var folders = [
+  var parentName = INSPECTION_REPORT_CONFIG.FOLDER_PARENT;
+
+  var parentIt = root.getFoldersByName(parentName);
+  var parent;
+  if (parentIt.hasNext()) {
+    parent = parentIt.next();
+    Logger.log("既存フォルダ（親）: " + parentName);
+  } else {
+    parent = root.createFolder(parentName);
+    Logger.log("作成しました（親）: " + parentName + " (ID: " + parent.getId() + ")");
+  }
+
+  var subfolders = [
     INSPECTION_REPORT_CONFIG.FOLDER_INBOX,
     INSPECTION_REPORT_CONFIG.FOLDER_DONE,
     INSPECTION_REPORT_CONFIG.TEMP_FOLDER
   ];
 
-  folders.forEach(function(name) {
-    var existing = DriveApp.getFoldersByName(name);
-    if (existing.hasNext()) {
-      Logger.log("既存フォルダ: " + name + " (ID: " + existing.next().getId() + ")");
+  subfolders.forEach(function(name) {
+    var it = parent.getFoldersByName(name);
+    if (it.hasNext()) {
+      Logger.log("既存: " + parentName + " / " + name);
     } else {
-      var folder = root.createFolder(name);
-      Logger.log("作成しました: " + name + " (ID: " + folder.getId() + ")");
+      parent.createFolder(name);
+      Logger.log("作成しました: " + parentName + " / " + name);
     }
   });
 
   Logger.log("\n=== セットアップ完了 ===");
-  Logger.log("「" + INSPECTION_REPORT_CONFIG.FOLDER_INBOX + "」フォルダにPDFを入れてください。");
+  Logger.log("「" + parentName + " / " + INSPECTION_REPORT_CONFIG.FOLDER_INBOX + "」にPDFを入れてください。");
 }
 
 /**
@@ -100,7 +116,7 @@ function setupMonthlyTriggerInspectionReport() {
 function processInspectionReports() {
   Logger.log("=== 点検報告書チェック開始 ===");
 
-  var inboxFolder = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
+  var inboxFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
   if (!inboxFolder) {
     Logger.log("エラー: 受信フォルダが見つかりません。setupFoldersInspectionReport() を実行してください。");
     return;
@@ -182,10 +198,10 @@ function processSingleInspectionPdf(file, appData) {
     var newName = "点検報告書_" + storeName + "SS_" + today + ".pdf";
     file.setName(newName);
 
-    var doneFolder = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
+    var doneFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
     if (doneFolder) {
       doneFolder.addFile(file);
-      var inbox = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
+      var inbox = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
       if (inbox) {
         inbox.removeFile(file);
       }
@@ -217,10 +233,10 @@ function movePdfToDoneFolder(file, baseName, originalName) {
     }
     file.setName(safeName);
 
-    var doneFolder = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
+    var doneFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
     if (doneFolder) {
       doneFolder.addFile(file);
-      var inbox = getFolderByName(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
+      var inbox = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
       if (inbox) {
         inbox.removeFile(file);
       }
@@ -236,9 +252,14 @@ function movePdfToDoneFolder(file, baseName, originalName) {
  * ※ 拡張機能で Drive API を有効化してください。
  */
 function extractTextFromInspectionPdf(pdfFile) {
-  var tempFolder = getFolderByName(INSPECTION_REPORT_CONFIG.TEMP_FOLDER);
+  var parent = getInspectionParentFolder();
+  if (!parent) {
+    Logger.log("PDF変換エラー: 親フォルダ「" + INSPECTION_REPORT_CONFIG.FOLDER_PARENT + "」が見つかりません。");
+    return null;
+  }
+  var tempFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.TEMP_FOLDER);
   if (!tempFolder) {
-    tempFolder = DriveApp.getRootFolder().createFolder(INSPECTION_REPORT_CONFIG.TEMP_FOLDER);
+    tempFolder = parent.createFolder(INSPECTION_REPORT_CONFIG.TEMP_FOLDER);
   }
 
   try {
@@ -644,6 +665,21 @@ function sendInspectionResultEmail(results) {
 // ============================================================
 // ユーティリティ
 // ============================================================
+
+/** 親フォルダ「21_アピカ点検報告書」を取得（マイドライブ直下から検索） */
+function getInspectionParentFolder() {
+  var root = DriveApp.getRootFolder();
+  var it = root.getFoldersByName(INSPECTION_REPORT_CONFIG.FOLDER_PARENT);
+  return it.hasNext() ? it.next() : null;
+}
+
+/** 親フォルダ直下のサブフォルダを名前で取得 */
+function getInspectionFolder(subfolderName) {
+  var parent = getInspectionParentFolder();
+  if (!parent) return null;
+  var it = parent.getFoldersByName(subfolderName);
+  return it.hasNext() ? it.next() : null;
+}
 
 function getFolderByName(name) {
   var folders = DriveApp.getFoldersByName(name);
