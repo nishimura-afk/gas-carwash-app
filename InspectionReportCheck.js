@@ -562,26 +562,91 @@ function parseInspectionNumber(val) {
   return isNaN(num) ? 0 : num;
 }
 
+/**
+ * 店舗のアプリ側の位置（区別）一覧を取得
+ */
+function getAppPositionsForStore(storeName, appData) {
+  var prefix = storeName + "_";
+  var positions = [];
+  for (var key in appData) {
+    if (key.indexOf(prefix) === 0) {
+      var pos = key.slice(prefix.length);
+      if (pos) positions.push(pos);
+    }
+  }
+  return positions;
+}
+
+/**
+ * 報告書の複数値のうち、アプリ累計に最も近い値を返す（1台のみの店舗でパース誤りがある場合の補正用）
+ */
+function pickClosestReportCount(reportCounts, appCount) {
+  if (!reportCounts || reportCounts.length === 0) return null;
+  var closest = reportCounts[0];
+  var minDiff = Math.abs(reportCounts[0].count - appCount);
+  for (var i = 1; i < reportCounts.length; i++) {
+    var d = Math.abs(reportCounts[i].count - appCount);
+    if (d < minDiff) {
+      minDiff = d;
+      closest = reportCounts[i];
+    }
+  }
+  return closest.count;
+}
+
 function compareInspectionWithAppData(storeName, reportCounts, appData, reportDate) {
   var comparisons = [];
   var thresholdMonths = INSPECTION_REPORT_CONFIG.THRESHOLD_MONTHS;
   var appRefDate = getInspectionAppReferenceDate();  // アプリの基準日＝前月末
 
-  reportCounts.forEach(function(report) {
-    var key = storeName + "_" + report.position;
-    var app = appData[key];
+  // アプリに存在する位置だけを比較する（報告書にない位置は無視、報告書だけにある位置も比較しない）
+  var appPositions = getAppPositionsForStore(storeName, appData);
+  if (appPositions.length === 0) {
+    Logger.log(storeName + ": 管理アプリに該当店舗のデータがありません");
+    return comparisons;
+  }
 
-    if (!app) {
-      comparisons.push({
-        position: report.position,
-        reportCount: report.count,
-        appCount: null,
-        predicted: null,
-        diff: null,
-        status: "⚠ 管理アプリにデータなし"
-      });
-      return;
+  var singleMachineStore = (appPositions.length === 1);
+  var reportCountByPos = {};
+  reportCounts.forEach(function(r) { reportCountByPos[r.position] = r.count; });
+
+  appPositions.forEach(function(appPosition) {
+    var key = storeName + "_" + appPosition;
+    var app = appData[key];
+    if (!app) return;
+
+    var reportCount;
+    var reportHasThisPosition = reportCountByPos.hasOwnProperty(appPosition);
+    if (reportHasThisPosition) {
+      reportCount = reportCountByPos[appPosition];
+      // 1台のみの店舗で、報告のその位置の値が明らかにおかしい（桁が違う等）場合は、全報告値のうちアプリに最も近いものを採用
+      if (singleMachineStore && reportCounts.length > 1) {
+        var closestCount = pickClosestReportCount(reportCounts, app.count);
+        var reportDiff = Math.abs(reportCount - app.count);
+        var closestDiff = Math.abs(closestCount - app.count);
+        if (closestDiff < reportDiff && closestDiff < app.count * 0.5) {
+          reportCount = closestCount;
+          Logger.log(storeName + " " + appPosition + ": 1台店のため報告値はアプリに最も近い数値を採用（" + reportCount + "）");
+        }
+      }
+    } else {
+      if (singleMachineStore && reportCounts.length >= 1) {
+        reportCount = pickClosestReportCount(reportCounts, app.count);
+        Logger.log(storeName + " " + appPosition + ": 報告書に該当表記なしのため、アプリに最も近い報告値を採用（" + reportCount + "）");
+      } else {
+        comparisons.push({
+          position: appPosition,
+          reportCount: null,
+          appCount: app.count,
+          predicted: null,
+          diff: null,
+          status: "⚠ 報告書に該当機の表記なし"
+        });
+        return;
+      }
     }
+
+    if (reportCount == null) return;
 
     // 予測値: アプリは前月末の累計。報告書の訪問日を考慮する
     var predicted;
@@ -589,18 +654,16 @@ function compareInspectionWithAppData(storeName, reportCounts, appData, reportDa
       var refTime = new Date(appRefDate.getFullYear(), appRefDate.getMonth(), appRefDate.getDate()).getTime();
       var reportTime = new Date(reportDate.getFullYear(), reportDate.getMonth(), reportDate.getDate()).getTime();
       if (reportTime <= refTime) {
-        // 訪問日が前月末以前 → 報告の累計はその時点なので、予測はアプリ値まで
         predicted = app.count;
       } else {
-        // 訪問日が前月末より後 → 前月末 + (訪問日までの日数 / 30) × 月平均
         var daysDiff = (reportTime - refTime) / (24 * 60 * 60 * 1000);
         predicted = app.count + Math.round(app.avg * (daysDiff / 30));
       }
     } else {
-      predicted = app.count + Math.round(app.avg * 1.5);  // 日付取れないときのフォールバック
+      predicted = app.count + Math.round(app.avg * 1.5);
     }
 
-    var diff = report.count - predicted;
+    var diff = reportCount - predicted;
     var threshold = app.avg * thresholdMonths;
 
     var status;
@@ -609,8 +672,7 @@ function compareInspectionWithAppData(storeName, reportCounts, appData, reportDa
     } else if (diff > 0) {
       status = "🔴 報告書の台数が多すぎる（+" + diff.toLocaleString() + "）";
     } else {
-      // 報告書の累計がアプリより少ない → 昔の報告書の可能性（要確認メールにはしない）
-      if (report.count < app.count) {
+      if (reportCount < app.count) {
         status = "⚠ 報告書が古い可能性（報告＜アプリ）";
       } else {
         status = "🔴 報告書の台数が少なすぎる（" + diff.toLocaleString() + "）";
@@ -618,8 +680,8 @@ function compareInspectionWithAppData(storeName, reportCounts, appData, reportDa
     }
 
     comparisons.push({
-      position: report.position,
-      reportCount: report.count,
+      position: appPosition,
+      reportCount: reportCount,
       appCount: app.count,
       appAvg: app.avg,
       predicted: predicted,
@@ -627,8 +689,8 @@ function compareInspectionWithAppData(storeName, reportCounts, appData, reportDa
       status: status
     });
 
-    Logger.log(storeName + " " + report.position + ": " +
-      "報告=" + report.count + " / アプリ=" + app.count +
+    Logger.log(storeName + " " + appPosition + ": " +
+      "報告=" + reportCount + " / アプリ=" + app.count +
       " / 予測=" + predicted + " / 差=" + diff + " → " + status);
   });
 
