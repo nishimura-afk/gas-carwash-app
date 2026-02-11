@@ -333,9 +333,14 @@ function saveMonthlyDataCorrectionByAccum(yearMonth, shopCode, machineIdentifier
 }
 
 /**
- * 累計台数の一括再計算
- * 月次データを年月順にソートし、店舗コード＋区別ごとに古い月から累計を再計算する。
- * 本体設置日より前のデータは累計を0にする。最後に refreshStatusSummary() でキャッシュ更新。
+ * 累計台数の一括再計算（修正版）
+ *
+ * 修正内容:
+ * 1. 日付を「その月の1日 00:00:00」に正規化してからソート（タイムゾーンずれ防止）
+ * 2. グループキーに trim() を追加（空白ゆらぎ防止）
+ * 3. 再計算前にバックアップシートを作成
+ * 4. setValues の範囲を明示的に累計台数列のみに限定（他列の意図しない上書き防止）
+ *
  * @return {{ updatedRows: number }}
  */
 function recalculateAllAccumulatedCounts() {
@@ -344,12 +349,21 @@ function recalculateAllAccumulatedCounts() {
   const masterData = getEquipmentMasterData();
   const installDateMap = new Map();
   masterData.forEach(item => {
-    const k = `${item['店舗コード']}_${item['区別']}`;
-    if (item['本体設置日'] && item['本体設置日'] instanceof Date) {
+    const k = `${String(item['店舗コード']).trim()}_${String(item['区別']).trim()}`;
+    if (item['本体設置日'] && item['本体設置日'] instanceof Date && !isNaN(item['本体設置日'].getTime())) {
       installDateMap.set(k, item['本体設置日']);
     }
   });
 
+  // --- バックアップ作成 ---
+  const ss = SpreadsheetApp.openById(config.SPREADSHEET_ID);
+  const backupName = '月次データ_バックアップ';
+  let backupSheet = ss.getSheetByName(backupName);
+  if (backupSheet) ss.deleteSheet(backupSheet);
+  monthlySheet.copyTo(ss).setName(backupName);
+  Logger.log('✅ バックアップシート作成完了: ' + backupName);
+
+  // --- データ取得 ---
   const range = monthlySheet.getDataRange();
   const allData = range.getValues();
   const headers = allData[0];
@@ -362,35 +376,79 @@ function recalculateAllAccumulatedCounts() {
     throw new Error('月次データシートの列が見つかりません');
   }
 
-  const parseDate = (d) => new Date(d);
-  const groupKey = (row) => `${row[idxShop]}_${row[idxMachine]}`;
+  /**
+   * 日付を「その月の1日 00:00:00」に正規化する
+   * Date型・文字列型のどちらにも対応
+   */
+  const normalizeDate = (d) => {
+    let date;
+    if (d instanceof Date) {
+      date = d;
+    } else {
+      // 文字列の場合: "2025-01" や "2025/01/01" など
+      date = new Date(d);
+    }
+    if (isNaN(date.getTime())) {
+      return null;
+    }
+    // 年と月だけ取り出し、その月の1日 00:00:00 に統一
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  };
 
+  /** グループキー: trim()で空白ゆらぎを吸収 */
+  const groupKey = (row) => `${String(row[idxShop]).trim()}_${String(row[idxMachine]).trim()}`;
+
+  // --- グループ化 ---
   const rowsByGroup = new Map();
   for (let i = 1; i < allData.length; i++) {
     const key = groupKey(allData[i]);
+    const normalizedDate = normalizeDate(allData[i][idxDate]);
+    if (!normalizedDate) {
+      Logger.log("⚠ 行" + (i + 1) + ": 日付を解釈できません (値: " + allData[i][idxDate] + ")");
+      continue;
+    }
     if (!rowsByGroup.has(key)) rowsByGroup.set(key, []);
-    rowsByGroup.get(key).push({ rowIndex: i, date: parseDate(allData[i][idxDate]), daily: parseFloat(allData[i][idxDaily]) || 0 });
+    rowsByGroup.get(key).push({
+      rowIndex: i,
+      date: normalizedDate,
+      daily: parseFloat(allData[i][idxDaily]) || 0
+    });
   }
 
+  // --- グループごとに累計を再計算 ---
+  let updatedCount = 0;
   rowsByGroup.forEach((rows, key) => {
+    // 年月の昇順でソート（正規化済みなのでタイムゾーン問題なし）
     rows.sort((a, b) => a.date.getTime() - b.date.getTime());
+
     const installDate = installDateMap.get(key);
-    const installMonthStart = installDate ? new Date(installDate.getFullYear(), installDate.getMonth(), 1) : null;
+    const installMonthStart = installDate
+      ? new Date(installDate.getFullYear(), installDate.getMonth(), 1)
+      : null;
+
     let prevAccum = 0;
     rows.forEach(r => {
       let newAccum;
-      if (installMonthStart && r.date < installMonthStart) {
+      if (installMonthStart && r.date.getTime() < installMonthStart.getTime()) {
         newAccum = 0;
       } else {
         newAccum = prevAccum + r.daily;
       }
       prevAccum = newAccum;
       allData[r.rowIndex][idxAccum] = newAccum;
+      updatedCount++;
     });
   });
 
-  range.setValues(allData);
+  // --- 書き戻し: 累計台数列のみを更新（他列を壊さない） ---
+  const accumColumn = [];
+  for (let i = 0; i < allData.length; i++) {
+    accumColumn.push([allData[i][idxAccum]]);
+  }
+  monthlySheet.getRange(1, idxAccum + 1, allData.length, 1).setValues(accumColumn);
+
   SpreadsheetApp.flush();
   refreshStatusSummary();
-  return { updatedRows: allData.length - 1 };
+  Logger.log('✅ 累計台数再計算完了: ' + updatedCount + ' 行更新');
+  return { updatedRows: updatedCount };
 }
