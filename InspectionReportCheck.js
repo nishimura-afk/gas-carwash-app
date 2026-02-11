@@ -18,7 +18,7 @@
  * 1. GASエディタで「拡張機能」→「Google のサービス」→ Drive API を ON にし、
  *    Google Cloud Console で Drive API を有効化してください。
  * 2. setupFoldersInspectionReport() を一度実行して、フォルダを自動作成
- * 3. setupMonthlyTriggerInspectionReport() を実行して月次トリガーを設定
+ * 3. setupDailyTriggerInspectionReport() を実行して日次トリガーを設定
  *
  * 【運用】
  * フォルダ構成: 21_アピカ点検報告書 / アピカ点検報告書_受信 にPDFを入れると、
@@ -86,10 +86,10 @@ function setupFoldersInspectionReport() {
 }
 
 /**
- * 点検報告書チェック用の月次トリガーを設定する（最初に1回だけ実行）
- * 毎月1日の午前9時に自動実行
+ * 点検報告書チェック用の日次トリガーを設定する（最初に1回だけ実行）
+ * 毎日午前9時に自動実行。受信フォルダが常に処理され、空であることが多くなる。
  */
-function setupMonthlyTriggerInspectionReport() {
+function setupDailyTriggerInspectionReport() {
   var triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function(trigger) {
     if (trigger.getHandlerFunction() === "processInspectionReports") {
@@ -99,11 +99,11 @@ function setupMonthlyTriggerInspectionReport() {
 
   ScriptApp.newTrigger("processInspectionReports")
     .timeBased()
-    .onMonthDay(1)
     .atHour(9)
+    .everyDays(1)
     .create();
 
-  Logger.log("点検報告書チェックの月次トリガーを設定しました（毎月1日 9:00-10:00）");
+  Logger.log("点検報告書チェックの日次トリガーを設定しました（毎日 9:00-10:00）");
 }
 
 // ============================================================
