@@ -53,7 +53,7 @@
         <p><strong>いつどちらを使うか</strong></p>
         <ul class="list-disc list-inside ml-2 space-y-1">
           <li><strong>月次台数で修正</strong> … その月の「1ヶ月分の洗車台数」だけを直したいとき（例: 2,000台と入力し忘れていた）。</li>
-          <li><strong>累計を直接指定</strong> … 表示が85,000台だが実際は80,000台のように、<strong>誤差が1ヶ月分（約2,000台）を超えるとき</strong>。累計を80,000に合わせると、その月の月次台数は自動で「80,000 − 前月累計」に修正され、以降の月も「累計再計算」で正しくつながります。</li>
+          <li><strong>累計を直接指定</strong> … 表示が85,000台だが実際は80,000台のように、<strong>誤差が1ヶ月分（約2,000台）を超えるとき</strong>。累計を80,000に合わせて「反映」を押すと、その月の月次台数は自動で「80,000 − 前月累計」に修正され、<strong>その店舗・区別の以降の月も自動で連鎖</strong>します（他店舗には触れません）。</li>
         </ul>
         <p><strong>月平均台数</strong> … 直近12ヶ月の月次台数から自動計算されています。上記で月次台数や累計を修正すると、再表示時に自動で更新されます。店舗一覧が空の場合は「最新情報を取得」を先に実行してください。</p>
       </div>
@@ -103,19 +103,10 @@
               反映
             </button>
           </div>
-        <p class="text-xs text-gray-600 mt-2"><strong>累計を書き換える手順:</strong> 対象年月・店舗・区別を選んで「読み込む」→「累計をこの値に合わせる」に希望の数値（例: 80000）を入力→「反映」→ 最後に下の「累計台数を再計算」を押す。</p>
+        <p class="text-xs text-gray-600 mt-2"><strong>累計を書き換える手順:</strong> 対象年月・店舗・区別を選んで「読み込む」→「累計をこの値に合わせる」に希望の数値（例: 80000）を入力→「反映」を押すだけ。その店舗・区別のその月以降が自動で連鎖し、他店舗には一切触れません。</p>
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- 累計台数一括再計算 -->
-  <div class="border-t pt-6 mt-6">
-    <h3 class="text-lg font-bold text-gray-800 mb-2"><i class="fas fa-calculator mr-2"></i>累計台数の一括再計算</h3>
-    <p class="text-sm text-gray-600 mb-3">月次データの月次台数に基づき、全店舗・全月の累計台数を再計算します。本体設置日より前は0にリセットされます。実行後はステータス集計も更新されます。「累計を直接指定」で1ヶ月だけ直したあと、ここを実行すると以降の月も正しい累計に連鎖します。</p>
-    <button type="button" onclick="runRecalculateAccumulated()" class="bg-purple-600 text-white font-bold py-2 px-6 rounded shadow hover:bg-purple-700 transition">
-      <i class="fas fa-sync-alt mr-2"></i>累計台数を再計算
-    </button>
   </div>
 </div>
 
@@ -475,7 +466,7 @@ function saveMonthlyCorrectionByAccum() {
         alert(res.error);
         return;
       }
-      alert('反映しました。必要に応じて「累計台数を再計算」を実行すると、以降の月も連鎖して更新されます。');
+      alert('反映しました。この店舗・区別のその月以降は自動で連鎖して更新されています。');
       loadMonthlyDataForEdit();
     })
     .withFailureHandler(e => {
@@ -485,21 +476,4 @@ function saveMonthlyCorrectionByAccum() {
     .saveMonthlyDataCorrectionByAccum(editState.yearMonth, editState.shopCode, editState.machineIdentifier, Number(targetAccum));
 }
 
-function runRecalculateAccumulated() {
-  if (!confirm('全月次データの累計台数を一括再計算します。\nよろしいですか？')) return;
-  showLoading(true);
-  google.script.run
-    .withSuccessHandler((res) => {
-      showLoading(false);
-      const n = (res && res.updatedRows != null) ? res.updatedRows : 0;
-      alert('再計算が完了しました。\n更新行数: ' + n + ' 件');
-      if (window.clearCache) window.clearCache('management');
-      if (carWashCache.length) loadMonthlyInput(true);
-    })
-    .withFailureHandler(e => {
-      showLoading(false);
-      alert('再計算エラー: ' + e);
-    })
-    .recalculateAllAccumulatedCounts();
-}
 </script>

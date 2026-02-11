@@ -271,9 +271,15 @@ function saveMonthlyDataCorrection(yearMonth, shopCode, machineIdentifier, daily
 }
 
 /**
- * 累計台数を直接指定して修正する（誤差が1ヶ月分を超える場合用）
- * 指定した月の累計を targetAccum にし、その月の日次台数は「targetAccum - 前月累計」に自動計算して整合を取る。
- * 以降の月は「累計再計算」で正しく連鎖する。
+ * 累計台数を直接指定して修正する（改修版）
+ *
+ * 動作:
+ * 1. 指定月の累計を targetAccum に設定
+ * 2. その月の月次台数を「targetAccum - 前月累計」に自動計算（マイナスも許容）
+ * 3. その月より後の月も、同じ店舗・区別だけ累計を連鎖再計算
+ * 4. 他店舗には一切触らない
+ *
+ * → 「反映」だけで完結するため「累計台数を再計算」ボタンは不要
  */
 function saveMonthlyDataCorrectionByAccum(yearMonth, shopCode, machineIdentifier, targetAccum) {
   const config = getConfig();
@@ -281,14 +287,13 @@ function saveMonthlyDataCorrectionByAccum(yearMonth, shopCode, machineIdentifier
   const masterData = getEquipmentMasterData();
   const installDateMap = new Map();
   masterData.forEach(item => {
-    const key = `${item['店舗コード']}_${item['区別']}`;
-    if (item['本体設置日'] && item['本体設置日'] instanceof Date) {
-      installDateMap.set(key, item['本体設置日']);
+    const k = `${String(item['店舗コード']).trim()}_${String(item['区別']).trim()}`;
+    if (item['本体設置日'] && item['本体設置日'] instanceof Date && !isNaN(item['本体設置日'].getTime())) {
+      installDateMap.set(k, item['本体設置日']);
     }
   });
 
-  const range = monthlySheet.getDataRange();
-  const allData = range.getValues();
+  const allData = monthlySheet.getDataRange().getValues();
   const headers = allData[0];
   const idxDate = headers.indexOf('年月');
   const idxShop = headers.indexOf('店舗コード');
@@ -296,40 +301,157 @@ function saveMonthlyDataCorrectionByAccum(yearMonth, shopCode, machineIdentifier
   const idxDaily = headers.indexOf('日次台数');
   const idxAccum = headers.indexOf('累計台数');
 
-  const parseDate = (d) => new Date(d);
-  const targetDate = new Date(yearMonth + '-01');
-  const key = `${shopCode}_${machineIdentifier}`;
-  const installDate = installDateMap.get(key);
-  const installMonthStart = installDate ? new Date(installDate.getFullYear(), installDate.getMonth(), 1) : null;
+  const normalizeDate = (d) => {
+    const date = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  };
 
-  let prevAccum = 0;
-  let maxPrevDate = null;
-  let targetRowIndex = -1;
+  const targetDate = new Date(yearMonth + '-01');
+  const key = `${String(shopCode).trim()}_${String(machineIdentifier).trim()}`;
+  const installDate = installDateMap.get(key);
+  const installMonthStart = installDate
+    ? new Date(installDate.getFullYear(), installDate.getMonth(), 1)
+    : null;
+
+  // --- この店舗・区別の全行を集める ---
+  const machineRows = [];
   for (let i = 1; i < allData.length; i++) {
-    if (allData[i][idxShop] !== shopCode || allData[i][idxMachine] !== machineIdentifier) continue;
-    const rowDate = parseDate(allData[i][idxDate]);
-    if (rowDate.getFullYear() === targetDate.getFullYear() && rowDate.getMonth() === targetDate.getMonth()) {
-      targetRowIndex = i;
-      continue;
-    }
-    if (rowDate >= targetDate) continue;
-    if (installMonthStart && rowDate < installMonthStart) continue;
-    const acc = parseFloat(allData[i][idxAccum]) || 0;
-    if (maxPrevDate === null || rowDate > maxPrevDate) {
-      maxPrevDate = rowDate;
-      prevAccum = acc;
+    if (String(allData[i][idxShop]).trim() !== String(shopCode).trim()) continue;
+    if (String(allData[i][idxMachine]).trim() !== String(machineIdentifier).trim()) continue;
+    const nd = normalizeDate(allData[i][idxDate]);
+    if (!nd) continue;
+    machineRows.push({
+      rowIndex: i,
+      date: nd,
+      daily: parseFloat(allData[i][idxDaily]) || 0,
+      accum: parseFloat(allData[i][idxAccum]) || 0
+    });
+  }
+
+  machineRows.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const targetRow = machineRows.find(r =>
+    r.date.getFullYear() === targetDate.getFullYear() &&
+    r.date.getMonth() === targetDate.getMonth()
+  );
+  if (!targetRow) {
+    return { success: false, error: '該当する月次データが見つかりません' };
+  }
+
+  // --- 前月の累計を取得（対象月より前で最も新しい月） ---
+  let prevAccum = 0;
+  for (let j = machineRows.length - 1; j >= 0; j--) {
+    if (machineRows[j].date.getTime() < targetDate.getTime()) {
+      if (installMonthStart && machineRows[j].date.getTime() < installMonthStart.getTime()) continue;
+      prevAccum = machineRows[j].accum;
+      break;
     }
   }
-  if (targetRowIndex < 0) return { success: false, error: '該当する月次データが見つかりません' };
 
+  // --- 対象月を書き換え ---
   const newAccum = Number(targetAccum);
-  const newDaily = Math.max(0, newAccum - prevAccum);
-  allData[targetRowIndex][idxDaily] = newDaily;
-  allData[targetRowIndex][idxAccum] = newAccum;
-  range.setValues(allData);
+  const newDaily = newAccum - prevAccum;
+  allData[targetRow.rowIndex][idxDaily] = newDaily;
+  allData[targetRow.rowIndex][idxAccum] = newAccum;
+
+  // --- 対象月より後の月を連鎖再計算（この店舗・区別だけ） ---
+  let runningAccum = newAccum;
+  for (const r of machineRows) {
+    if (r.date.getTime() <= targetDate.getTime()) continue;
+    if (installMonthStart && r.date.getTime() < installMonthStart.getTime()) {
+      allData[r.rowIndex][idxAccum] = 0;
+      continue;
+    }
+    const daily = parseFloat(allData[r.rowIndex][idxDaily]) || 0;
+    runningAccum = runningAccum + daily;
+    allData[r.rowIndex][idxAccum] = runningAccum;
+  }
+
+  // --- 変更した行だけ書き戻す（対象月＋以降の月。月次台数・累計台数の2列のみ） ---
+  const rowsToUpdate = machineRows.filter(r => r.date.getTime() >= targetDate.getTime());
+  for (const r of rowsToUpdate) {
+    const rowNum = r.rowIndex + 1;
+    monthlySheet.getRange(rowNum, idxDaily + 1, rowNum, idxAccum + 1).setValues([[allData[r.rowIndex][idxDaily], allData[r.rowIndex][idxAccum]]]);
+  }
+
   SpreadsheetApp.flush();
   refreshStatusSummary();
   return { success: true };
+}
+
+/**
+ * 累計台数の再計算（対象店舗・区別のみ）
+ * 全店舗一括は行わず、指定した1つの店舗・区別だけを再計算する。
+ * UIの「累計台数を再計算」は廃止。saveMonthlyDataCorrectionByAccum の「反映」で連鎖するため通常は不要。
+ */
+function recalculateSingleMachineAccumulated(shopCode, machineIdentifier) {
+  const config = getConfig();
+  const monthlySheet = getSheet(config.SHEET_NAMES.MONTHLY_DATA);
+  const masterData = getEquipmentMasterData();
+  const installDateMap = new Map();
+  masterData.forEach(item => {
+    const k = `${String(item['店舗コード']).trim()}_${String(item['区別']).trim()}`;
+    if (item['本体設置日'] && item['本体設置日'] instanceof Date && !isNaN(item['本体設置日'].getTime())) {
+      installDateMap.set(k, item['本体設置日']);
+    }
+  });
+
+  const allData = monthlySheet.getDataRange().getValues();
+  const headers = allData[0];
+  const idxDate = headers.indexOf('年月');
+  const idxShop = headers.indexOf('店舗コード');
+  const idxMachine = headers.indexOf('区別');
+  const idxDaily = headers.indexOf('日次台数');
+  const idxAccum = headers.indexOf('累計台数');
+
+  const normalizeDate = (d) => {
+    const date = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  };
+
+  const key = `${String(shopCode).trim()}_${String(machineIdentifier).trim()}`;
+  const installDate = installDateMap.get(key);
+  const installMonthStart = installDate
+    ? new Date(installDate.getFullYear(), installDate.getMonth(), 1)
+    : null;
+
+  const machineRows = [];
+  for (let i = 1; i < allData.length; i++) {
+    if (String(allData[i][idxShop]).trim() !== String(shopCode).trim()) continue;
+    if (String(allData[i][idxMachine]).trim() !== String(machineIdentifier).trim()) continue;
+    const nd = normalizeDate(allData[i][idxDate]);
+    if (!nd) continue;
+    machineRows.push({
+      rowIndex: i,
+      date: nd,
+      daily: parseFloat(allData[i][idxDaily]) || 0
+    });
+  }
+
+  machineRows.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  let prevAccum = 0;
+  const updates = [];
+  machineRows.forEach(r => {
+    let newAccum;
+    if (installMonthStart && r.date.getTime() < installMonthStart.getTime()) {
+      newAccum = 0;
+    } else {
+      newAccum = prevAccum + r.daily;
+    }
+    prevAccum = newAccum;
+    updates.push({ rowIndex: r.rowIndex, accum: newAccum });
+  });
+
+  updates.forEach(u => {
+    monthlySheet.getRange(u.rowIndex + 1, idxAccum + 1).setValue(u.accum);
+  });
+
+  SpreadsheetApp.flush();
+  refreshStatusSummary();
+  return { updatedRows: updates.length };
 }
 
 /**
