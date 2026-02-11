@@ -439,9 +439,19 @@ function extractCumulativeCountsFromReport(text) {
   // 半角・全角の数字にマッチする部分（キャプチャ用）
   var numPart = "([0-9０-９][0-9０-９,\\s]*)";
 
+  var match;
+
+  // パターン0: 「左側洗車機 13155台」「右側洗車機 14890台」「左側洗車機13155台」など（全角数字対応）
+  var pattern0 = new RegExp("(左側洗車機|右側洗車機)\\s*" + numPart + "\\s*台", "g");
+  while ((match = pattern0.exec(text)) !== null) {
+    var count = parseCountStr(match[2]);
+    if (count <= 0) continue;
+    var position = match[1].indexOf("左") >= 0 ? "左" : "右";
+    addOrUpdate(position, count);
+  }
+
   // パターン1: 「左機 51541台」「真ん中機 58,624台」など
   var pattern1 = /(左機?|真ん中機?|中央機?|右機?|布機?)\s*[：:]?\s*(\d[\d,]*)\s*台?/g;
-  var match;
   while ((match = pattern1.exec(text)) !== null) {
     var posKey = match[1];
     var count = parseCountStr(match[2]);
