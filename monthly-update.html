@@ -39,6 +39,64 @@
       <i class="fas fa-save mr-2"></i>一括保存する
     </button>
   </div>
+
+  <!-- 修正モード -->
+  <div class="border-t pt-6 mt-8 space-y-4">
+    <div class="flex items-center gap-4">
+      <h3 class="text-lg font-bold text-gray-800"><i class="fas fa-edit mr-2"></i>月次データの個別修正</h3>
+      <button type="button" id="toggle-edit-mode" onclick="toggleEditMode()" class="bg-amber-100 hover:bg-amber-200 text-amber-800 px-4 py-2 rounded text-sm font-bold transition">
+        修正モードを開く
+      </button>
+    </div>
+    <div id="edit-mode-panel" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
+      <p class="text-sm text-gray-600">指定した年月・店舗・区別の既存データを表示し、日次台数を編集して保存できます。保存時はその月のデータのみ上書きします。店舗一覧が空の場合は「最新情報を取得」を先に実行してください。</p>
+      <div class="flex flex-wrap items-end gap-4">
+        <div>
+          <label class="block text-sm font-bold text-gray-700 mb-1">対象年月</label>
+          <input type="month" id="edit-month" class="border rounded p-2">
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-gray-700 mb-1">店舗</label>
+          <select id="edit-shop" class="border rounded p-2 min-w-[180px]" onchange="fillEditPositions()">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-gray-700 mb-1">区別</label>
+          <select id="edit-pos" class="border rounded p-2 min-w-[100px]">
+            <option value="">選択してください</option>
+          </select>
+        </div>
+        <button type="button" onclick="loadMonthlyDataForEdit()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700">
+          <i class="fas fa-search mr-1"></i>読み込む
+        </button>
+      </div>
+      <div id="edit-data-area" class="hidden border-t border-amber-200 pt-4 mt-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-bold text-gray-700 mb-1">日次台数（編集）</label>
+            <input type="number" id="edit-daily" min="0" class="border rounded p-2 w-full" placeholder="0">
+          </div>
+          <div>
+            <label class="block text-sm font-bold text-gray-700 mb-1">累計台数（再計算後）</label>
+            <p id="edit-accum-preview" class="p-2 bg-gray-100 rounded text-right font-mono">—</p>
+          </div>
+        </div>
+        <button type="button" onclick="saveMonthlyCorrection()" class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">
+          <i class="fas fa-save mr-1"></i>保存する
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 累計台数一括再計算 -->
+  <div class="border-t pt-6 mt-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-2"><i class="fas fa-calculator mr-2"></i>累計台数の一括再計算</h3>
+    <p class="text-sm text-gray-600 mb-3">月次データの日次台数に基づき、全店舗・全月の累計台数を再計算します。本体設置日より前は0にリセットされます。実行後はステータス集計も更新されます。</p>
+    <button type="button" onclick="runRecalculateAccumulated()" class="bg-purple-600 text-white font-bold py-2 px-6 rounded shadow hover:bg-purple-700 transition">
+      <i class="fas fa-sync-alt mr-2"></i>累計台数を再計算
+    </button>
+  </div>
 </div>
 
 <script>
@@ -269,5 +327,129 @@ function submitBatchMonthly() {
       alert('保存エラー: ' + e);
     })
     .recordMonthlyUpdate(updates);
+}
+
+// --- 修正モード ---
+function toggleEditMode() {
+  const panel = document.getElementById('edit-mode-panel');
+  const btn = document.getElementById('toggle-edit-mode');
+  if (panel.classList.contains('hidden')) {
+    panel.classList.remove('hidden');
+    btn.textContent = '修正モードを閉じる';
+    if (!document.getElementById('edit-shop').options.length || document.getElementById('edit-shop').options.length === 1) {
+      fillEditShopOptions();
+    }
+  } else {
+    panel.classList.add('hidden');
+    btn.textContent = '修正モードを開く';
+    document.getElementById('edit-data-area').classList.add('hidden');
+  }
+}
+
+function fillEditShopOptions() {
+  const sel = document.getElementById('edit-shop');
+  sel.innerHTML = '<option value="">選択してください</option>';
+  const seen = new Set();
+  (carWashCache || []).forEach(item => {
+    if (!item['店舗コード'] || seen.has(item['店舗コード'])) return;
+    seen.add(item['店舗コード']);
+    const opt = document.createElement('option');
+    opt.value = item['店舗コード'];
+    opt.textContent = item['店舗名'] + ' (' + item['店舗コード'] + ')';
+    sel.appendChild(opt);
+  });
+}
+
+function fillEditPositions() {
+  const shopCode = document.getElementById('edit-shop').value;
+  const sel = document.getElementById('edit-pos');
+  sel.innerHTML = '<option value="">選択してください</option>';
+  if (!shopCode || !carWashCache) return;
+  carWashCache.filter(item => item['店舗コード'] === shopCode).forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item['区別'];
+    opt.textContent = item['区別'];
+    sel.appendChild(opt);
+  });
+  document.getElementById('edit-data-area').classList.add('hidden');
+}
+
+let editState = { yearMonth: '', shopCode: '', machineIdentifier: '' };
+
+function loadMonthlyDataForEdit() {
+  const yearMonth = document.getElementById('edit-month').value;
+  const shopCode = document.getElementById('edit-shop').value;
+  const machineIdentifier = document.getElementById('edit-pos').value;
+  if (!yearMonth || !shopCode || !machineIdentifier) {
+    alert('対象年月・店舗・区別をすべて選択してください。');
+    return;
+  }
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler((data) => {
+      showLoading(false);
+      editState = { yearMonth, shopCode, machineIdentifier };
+      const area = document.getElementById('edit-data-area');
+      if (!data) {
+        area.classList.add('hidden');
+        alert('該当する月次データがありません。');
+        return;
+      }
+      document.getElementById('edit-daily').value = data.dailyCount;
+      document.getElementById('edit-accum-preview').textContent = (data.accumCount != null ? Number(data.accumCount).toLocaleString() : '—') + ' 台（読み込み時）';
+      area.classList.remove('hidden');
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('取得エラー: ' + e);
+    })
+    .getMonthlyDataForEdit(yearMonth, shopCode, machineIdentifier);
+}
+
+function saveMonthlyCorrection() {
+  if (!editState.yearMonth || !editState.shopCode || !editState.machineIdentifier) {
+    alert('先に「読み込む」でデータを読み込んでください。');
+    return;
+  }
+  const dailyCount = document.getElementById('edit-daily').value;
+  if (dailyCount === '' || Number(dailyCount) < 0) {
+    alert('日次台数を入力してください。');
+    return;
+  }
+  if (!confirm('この内容で上書き保存しますか？\n（該当月のデータのみ更新されます）')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler((res) => {
+      showLoading(false);
+      if (res && res.error) {
+        alert(res.error);
+        return;
+      }
+      alert('保存しました。');
+      loadMonthlyDataForEdit();
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('保存エラー: ' + e);
+    })
+    .saveMonthlyDataCorrection(editState.yearMonth, editState.shopCode, editState.machineIdentifier, Number(dailyCount));
+}
+
+function runRecalculateAccumulated() {
+  if (!confirm('全月次データの累計台数を一括再計算します。\nよろしいですか？')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler((res) => {
+      showLoading(false);
+      const n = (res && res.updatedRows != null) ? res.updatedRows : 0;
+      alert('再計算が完了しました。\n更新行数: ' + n + ' 件');
+      if (window.clearCache) window.clearCache('management');
+      if (carWashCache.length) loadMonthlyInput(true);
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('再計算エラー: ' + e);
+    })
+    .recalculateAllAccumulatedCounts();
 }
 </script>
