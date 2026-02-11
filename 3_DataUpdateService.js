@@ -333,13 +333,13 @@ function saveMonthlyDataCorrectionByAccum(yearMonth, shopCode, machineIdentifier
 }
 
 /**
- * 累計台数の一括再計算（修正版）
+ * 累計台数の一括再計算（修正版 v2）
  *
  * 修正内容:
- * 1. 日付を「その月の1日 00:00:00」に正規化してからソート（タイムゾーンずれ防止）
- * 2. グループキーに trim() を追加（空白ゆらぎ防止）
+ * 1. 日付を「その月の1日」に正規化してソート
+ * 2. 店舗コードを正規化: 数値・"014" などは "14" に統一し、同一店舗が別グループに分かれないようにする
  * 3. 再計算前にバックアップシートを作成
- * 4. setValues の範囲を明示的に累計台数列のみに限定（他列の意図しない上書き防止）
+ * 4. 書き戻しは累計列のみ。getRange は (startRow, startCol, endRow, endCol) で明示
  *
  * @return {{ updatedRows: number }}
  */
@@ -347,9 +347,21 @@ function recalculateAllAccumulatedCounts() {
   const config = getConfig();
   const monthlySheet = getSheet(config.SHEET_NAMES.MONTHLY_DATA);
   const masterData = getEquipmentMasterData();
+
+  /**
+   * 店舗コード＋区別の正規化キー（数値は "14" に統一し "014" と混在しないようにする）
+   */
+  const normalizeGroupKey = (shop, machine) => {
+    const s = String(shop).trim();
+    const m = String(machine).trim();
+    const n = parseInt(s, 10);
+    const shopPart = (!isNaN(n) && s !== '') ? String(n) : s;
+    return shopPart + '_' + m;
+  };
+
   const installDateMap = new Map();
   masterData.forEach(item => {
-    const k = `${String(item['店舗コード']).trim()}_${String(item['区別']).trim()}`;
+    const k = normalizeGroupKey(item['店舗コード'], item['区別']);
     if (item['本体設置日'] && item['本体設置日'] instanceof Date && !isNaN(item['本体設置日'].getTime())) {
       installDateMap.set(k, item['本体設置日']);
     }
@@ -364,8 +376,7 @@ function recalculateAllAccumulatedCounts() {
   Logger.log('✅ バックアップシート作成完了: ' + backupName);
 
   // --- データ取得 ---
-  const range = monthlySheet.getDataRange();
-  const allData = range.getValues();
+  const allData = monthlySheet.getDataRange().getValues();
   const headers = allData[0];
   const idxDate = headers.indexOf('年月');
   const idxShop = headers.indexOf('店舗コード');
@@ -376,49 +387,33 @@ function recalculateAllAccumulatedCounts() {
     throw new Error('月次データシートの列が見つかりません');
   }
 
-  /**
-   * 日付を「その月の1日 00:00:00」に正規化する
-   * Date型・文字列型のどちらにも対応
-   */
   const normalizeDate = (d) => {
-    let date;
-    if (d instanceof Date) {
-      date = d;
-    } else {
-      // 文字列の場合: "2025-01" や "2025/01/01" など
-      date = new Date(d);
-    }
-    if (isNaN(date.getTime())) {
-      return null;
-    }
-    // 年と月だけ取り出し、その月の1日 00:00:00 に統一
+    let date = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(date.getTime())) return null;
     return new Date(date.getFullYear(), date.getMonth(), 1);
   };
 
-  /** グループキー: trim()で空白ゆらぎを吸収 */
-  const groupKey = (row) => `${String(row[idxShop]).trim()}_${String(row[idxMachine]).trim()}`;
-
-  // --- グループ化 ---
+  // --- グループ化（月次データ側も同じ normalizeGroupKey を使用） ---
   const rowsByGroup = new Map();
   for (let i = 1; i < allData.length; i++) {
-    const key = groupKey(allData[i]);
-    const normalizedDate = normalizeDate(allData[i][idxDate]);
+    const row = allData[i];
+    const key = normalizeGroupKey(row[idxShop], row[idxMachine]);
+    const normalizedDate = normalizeDate(row[idxDate]);
     if (!normalizedDate) {
-      Logger.log("⚠ 行" + (i + 1) + ": 日付を解釈できません (値: " + allData[i][idxDate] + ")");
+      Logger.log("⚠ 行" + (i + 1) + ": 日付を解釈できません (値: " + row[idxDate] + ")");
       continue;
     }
     if (!rowsByGroup.has(key)) rowsByGroup.set(key, []);
     rowsByGroup.get(key).push({
       rowIndex: i,
       date: normalizedDate,
-      daily: parseFloat(allData[i][idxDaily]) || 0
+      daily: parseFloat(row[idxDaily]) || 0
     });
   }
 
-  // --- グループごとに累計を再計算 ---
+  // --- グループごとに累計を再計算（allData の該当行だけ更新） ---
   let updatedCount = 0;
   rowsByGroup.forEach((rows, key) => {
-    // 年月の昇順でソート（正規化済みなのでタイムゾーン問題なし）
     rows.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     const installDate = installDateMap.get(key);
@@ -440,12 +435,15 @@ function recalculateAllAccumulatedCounts() {
     });
   });
 
-  // --- 書き戻し: 累計台数列のみを更新（他列を壊さない） ---
+  // --- 書き戻し: 累計台数列のみ（getRange(row, column, numRows, numColumns) で1列だけ） ---
+  const numRows = allData.length;
+  const accumCol = idxAccum + 1; // 1-based
   const accumColumn = [];
-  for (let i = 0; i < allData.length; i++) {
+  for (let i = 0; i < numRows; i++) {
     accumColumn.push([allData[i][idxAccum]]);
   }
-  monthlySheet.getRange(1, idxAccum + 1, allData.length, 1).setValues(accumColumn);
+  const rangeToWrite = monthlySheet.getRange(1, accumCol, numRows, 1);
+  rangeToWrite.setValues(accumColumn);
 
   SpreadsheetApp.flush();
   refreshStatusSummary();
