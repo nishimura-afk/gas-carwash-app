@@ -49,7 +49,14 @@
       </button>
     </div>
     <div id="edit-mode-panel" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-4">
-      <p class="text-sm text-gray-600">指定した年月・店舗・区別の既存データを表示し、日次台数を編集して保存できます。保存時はその月のデータのみ上書きします。店舗一覧が空の場合は「最新情報を取得」を先に実行してください。</p>
+      <div class="text-sm text-gray-700 space-y-2">
+        <p><strong>いつどちらを使うか</strong></p>
+        <ul class="list-disc list-inside ml-2 space-y-1">
+          <li><strong>日次台数で修正</strong> … その月の「稼働台数」だけを直したいとき（例: 2,000台と入力し忘れていた）。</li>
+          <li><strong>累計を直接指定</strong> … 表示が85,000台だが実際は80,000台のように、<strong>誤差が1ヶ月分（約2,000台）を超えるとき</strong>。累計を80,000に合わせると、その月の日次は自動で「80,000 − 前月累計」に修正され、以降の月も「累計再計算」で正しくつながります。</li>
+        </ul>
+        <p><strong>月平均台数</strong> … 直近12ヶ月の日次台数から自動計算されています。上記で日次や累計を修正すると、再表示時に自動で更新されます。店舗一覧が空の場合は「最新情報を取得」を先に実行してください。</p>
+      </div>
       <div class="flex flex-wrap items-end gap-4">
         <div>
           <label class="block text-sm font-bold text-gray-700 mb-1">対象年月</label>
@@ -71,20 +78,32 @@
           <i class="fas fa-search mr-1"></i>読み込む
         </button>
       </div>
-      <div id="edit-data-area" class="hidden border-t border-amber-200 pt-4 mt-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div id="edit-data-area" class="hidden border-t border-amber-200 pt-4 mt-4 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-bold text-gray-700 mb-1">日次台数（編集）</label>
             <input type="number" id="edit-daily" min="0" class="border rounded p-2 w-full" placeholder="0">
+            <p class="text-xs text-gray-500 mt-1">その月の稼働台数だけを直すときに変更</p>
           </div>
           <div>
-            <label class="block text-sm font-bold text-gray-700 mb-1">累計台数（再計算後）</label>
+            <label class="block text-sm font-bold text-gray-700 mb-1">累計台数（表示）</label>
             <p id="edit-accum-preview" class="p-2 bg-gray-100 rounded text-right font-mono">—</p>
           </div>
         </div>
-        <button type="button" onclick="saveMonthlyCorrection()" class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">
-          <i class="fas fa-save mr-1"></i>保存する
-        </button>
+        <div class="flex flex-wrap items-center gap-4">
+          <button type="button" onclick="saveMonthlyCorrection()" class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">
+            <i class="fas fa-save mr-1"></i>日次で保存
+          </button>
+          <span class="text-gray-500">または</span>
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-bold text-gray-700">累計をこの値に合わせる:</label>
+            <input type="number" id="edit-accum-target" min="0" class="border rounded p-2 w-28 text-right font-mono" placeholder="80000">
+            <span class="text-sm text-gray-600">台</span>
+            <button type="button" onclick="saveMonthlyCorrectionByAccum()" class="bg-purple-600 text-white px-4 py-2 rounded font-bold hover:bg-purple-700">
+              反映
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -92,7 +111,7 @@
   <!-- 累計台数一括再計算 -->
   <div class="border-t pt-6 mt-6">
     <h3 class="text-lg font-bold text-gray-800 mb-2"><i class="fas fa-calculator mr-2"></i>累計台数の一括再計算</h3>
-    <p class="text-sm text-gray-600 mb-3">月次データの日次台数に基づき、全店舗・全月の累計台数を再計算します。本体設置日より前は0にリセットされます。実行後はステータス集計も更新されます。</p>
+    <p class="text-sm text-gray-600 mb-3">月次データの日次台数に基づき、全店舗・全月の累計台数を再計算します。本体設置日より前は0にリセットされます。実行後はステータス集計も更新されます。「累計を直接指定」で1ヶ月だけ直したあと、ここを実行すると以降の月も正しい累計に連鎖します。</p>
     <button type="button" onclick="runRecalculateAccumulated()" class="bg-purple-600 text-white font-bold py-2 px-6 rounded shadow hover:bg-purple-700 transition">
       <i class="fas fa-sync-alt mr-2"></i>累計台数を再計算
     </button>
@@ -397,6 +416,7 @@ function loadMonthlyDataForEdit() {
       }
       document.getElementById('edit-daily').value = data.dailyCount;
       document.getElementById('edit-accum-preview').textContent = (data.accumCount != null ? Number(data.accumCount).toLocaleString() : '—') + ' 台（読み込み時）';
+      document.getElementById('edit-accum-target').value = data.accumCount != null ? data.accumCount : '';
       area.classList.remove('hidden');
     })
     .withFailureHandler(e => {
@@ -433,6 +453,35 @@ function saveMonthlyCorrection() {
       alert('保存エラー: ' + e);
     })
     .saveMonthlyDataCorrection(editState.yearMonth, editState.shopCode, editState.machineIdentifier, Number(dailyCount));
+}
+
+function saveMonthlyCorrectionByAccum() {
+  if (!editState.yearMonth || !editState.shopCode || !editState.machineIdentifier) {
+    alert('先に「読み込む」でデータを読み込んでください。');
+    return;
+  }
+  const targetAccum = document.getElementById('edit-accum-target').value;
+  if (targetAccum === '' || Number(targetAccum) < 0) {
+    alert('累計の値を入力してください。');
+    return;
+  }
+  if (!confirm('この月の累計を ' + Number(targetAccum).toLocaleString() + ' 台に合わせます。\nその月の日次台数は自動で「累計 − 前月累計」に変更されます。よろしいですか？')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler((res) => {
+      showLoading(false);
+      if (res && res.error) {
+        alert(res.error);
+        return;
+      }
+      alert('反映しました。必要に応じて「累計台数を再計算」を実行すると、以降の月も連鎖して更新されます。');
+      loadMonthlyDataForEdit();
+    })
+    .withFailureHandler(e => {
+      showLoading(false);
+      alert('エラー: ' + e);
+    })
+    .saveMonthlyDataCorrectionByAccum(editState.yearMonth, editState.shopCode, editState.machineIdentifier, Number(targetAccum));
 }
 
 function runRecalculateAccumulated() {

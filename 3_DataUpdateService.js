@@ -271,6 +271,68 @@ function saveMonthlyDataCorrection(yearMonth, shopCode, machineIdentifier, daily
 }
 
 /**
+ * 累計台数を直接指定して修正する（誤差が1ヶ月分を超える場合用）
+ * 指定した月の累計を targetAccum にし、その月の日次台数は「targetAccum - 前月累計」に自動計算して整合を取る。
+ * 以降の月は「累計再計算」で正しく連鎖する。
+ */
+function saveMonthlyDataCorrectionByAccum(yearMonth, shopCode, machineIdentifier, targetAccum) {
+  const config = getConfig();
+  const monthlySheet = getSheet(config.SHEET_NAMES.MONTHLY_DATA);
+  const masterData = getEquipmentMasterData();
+  const installDateMap = new Map();
+  masterData.forEach(item => {
+    const key = `${item['店舗コード']}_${item['区別']}`;
+    if (item['本体設置日'] && item['本体設置日'] instanceof Date) {
+      installDateMap.set(key, item['本体設置日']);
+    }
+  });
+
+  const range = monthlySheet.getDataRange();
+  const allData = range.getValues();
+  const headers = allData[0];
+  const idxDate = headers.indexOf('年月');
+  const idxShop = headers.indexOf('店舗コード');
+  const idxMachine = headers.indexOf('区別');
+  const idxDaily = headers.indexOf('日次台数');
+  const idxAccum = headers.indexOf('累計台数');
+
+  const parseDate = (d) => new Date(d);
+  const targetDate = new Date(yearMonth + '-01');
+  const key = `${shopCode}_${machineIdentifier}`;
+  const installDate = installDateMap.get(key);
+  const installMonthStart = installDate ? new Date(installDate.getFullYear(), installDate.getMonth(), 1) : null;
+
+  let prevAccum = 0;
+  let maxPrevDate = null;
+  let targetRowIndex = -1;
+  for (let i = 1; i < allData.length; i++) {
+    if (allData[i][idxShop] !== shopCode || allData[i][idxMachine] !== machineIdentifier) continue;
+    const rowDate = parseDate(allData[i][idxDate]);
+    if (rowDate.getFullYear() === targetDate.getFullYear() && rowDate.getMonth() === targetDate.getMonth()) {
+      targetRowIndex = i;
+      continue;
+    }
+    if (rowDate >= targetDate) continue;
+    if (installMonthStart && rowDate < installMonthStart) continue;
+    const acc = parseFloat(allData[i][idxAccum]) || 0;
+    if (maxPrevDate === null || rowDate > maxPrevDate) {
+      maxPrevDate = rowDate;
+      prevAccum = acc;
+    }
+  }
+  if (targetRowIndex < 0) return { success: false, error: '該当する月次データが見つかりません' };
+
+  const newAccum = Number(targetAccum);
+  const newDaily = Math.max(0, newAccum - prevAccum);
+  allData[targetRowIndex][idxDaily] = newDaily;
+  allData[targetRowIndex][idxAccum] = newAccum;
+  range.setValues(allData);
+  SpreadsheetApp.flush();
+  refreshStatusSummary();
+  return { success: true };
+}
+
+/**
  * 累計台数の一括再計算
  * 月次データを年月順にソートし、店舗コード＋区別ごとに古い月から累計を再計算する。
  * 本体設置日より前のデータは累計を0にする。最後に refreshStatusSummary() でキャッシュ更新。
