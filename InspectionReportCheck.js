@@ -36,6 +36,11 @@ var INSPECTION_REPORT_CONFIG = {
   // 一時変換: PDF→Google Doc に変換する際、Drive API が一時的に Doc を作成するための置き場。テキスト取得後に即削除する。
   TEMP_FOLDER: "アピカ点検_一時変換",
 
+  // フォルダIDを指定すると名前検索を使わず確実にそのフォルダを参照する（共有ドライブ・同名フォルダ対策）
+  FOLDER_PARENT_ID: "1OHnwdd_QiYRr1joibkNuCFqY-GsJ-zeN",
+  FOLDER_INBOX_ID: "180DTMLrqSwElBwOuwqRElzCLNZjZHe9G",
+  FOLDER_DONE_ID: "19AGnh4mDUvDKRt5QjWTpcbhkTd7zr9qn",
+
   // 通知先メールアドレス
   NOTIFY_EMAIL: "nishimura@selfix.jp",
 
@@ -112,14 +117,27 @@ function setupDailyTriggerInspectionReport() {
 
 /**
  * メイン関数：フォルダ内のPDFを処理する
+ * ※ 親・受信・処理済みを1回だけ取得し、同じフォルダ参照で移動する（同名フォルダが複数あるとずれないようにする）
  */
 function processInspectionReports() {
   Logger.log("=== 点検報告書チェック開始 ===");
 
-  var inboxFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
-  if (!inboxFolder) {
-    Logger.log("エラー: 受信フォルダが見つかりません。setupFoldersInspectionReport() を実行してください。");
+  var parent = getInspectionParentFolder();
+  if (!parent) {
+    Logger.log("エラー: 親フォルダ「" + INSPECTION_REPORT_CONFIG.FOLDER_PARENT + "」が見つかりません。FOLDER_PARENT_ID またはマイドライブ直下を確認してください。");
     return;
+  }
+
+  var inboxFolder = getInspectionInboxFolder(parent);
+  if (!inboxFolder) {
+    Logger.log("エラー: 受信フォルダが見つかりません。FOLDER_INBOX_ID を設定するか setupFoldersInspectionReport() を実行してください。");
+    return;
+  }
+
+  var doneFolder = getInspectionDoneFolder(parent);
+  if (!doneFolder) {
+    doneFolder = parent.createFolder(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
+    Logger.log("処理済みフォルダを自動作成しました: " + INSPECTION_REPORT_CONFIG.FOLDER_DONE);
   }
 
   var files = inboxFolder.getFilesByType(MimeType.PDF);
@@ -133,7 +151,7 @@ function processInspectionReports() {
     return;
   }
 
-  Logger.log("対象PDF: " + pdfList.length + " 件");
+  Logger.log("対象PDF: " + pdfList.length + " 件（受信・処理済みは同一親フォルダを参照）");
 
   var appData = getInspectionAppData();
   if (!appData) {
@@ -144,7 +162,7 @@ function processInspectionReports() {
   var results = [];
   pdfList.forEach(function(file) {
     Logger.log("\n--- 処理中: " + file.getName() + " ---");
-    var result = processSingleInspectionPdf(file, appData);
+    var result = processSingleInspectionPdf(file, appData, inboxFolder, doneFolder);
     if (result) {
       results.push(result);
     }
@@ -161,14 +179,14 @@ function processInspectionReports() {
 // PDF処理
 // ============================================================
 
-function processSingleInspectionPdf(file, appData) {
+function processSingleInspectionPdf(file, appData, inboxFolder, doneFolder) {
   var today = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyyMMdd");
   var originalName = file.getName();
 
   try {
     var text = extractTextFromInspectionPdf(file);
     if (!text) {
-      movePdfToDoneFolder(file, "処理エラー_テキスト抽出失敗_" + today, originalName);
+      movePdfToDoneFolder(file, "処理エラー_テキスト抽出失敗_" + today, originalName, inboxFolder, doneFolder);
       return { fileName: originalName, error: "テキスト抽出失敗" };
     }
 
@@ -176,14 +194,14 @@ function processSingleInspectionPdf(file, appData) {
 
     var storeName = extractStoreNameFromReport(text);
     if (!storeName) {
-      movePdfToDoneFolder(file, "処理エラー_店舗名不明_" + today, originalName);
+      movePdfToDoneFolder(file, "処理エラー_店舗名不明_" + today, originalName, inboxFolder, doneFolder);
       return { fileName: originalName, error: "店舗名を特定できません" };
     }
     Logger.log("店舗名: " + storeName);
 
     var reportCounts = extractCumulativeCountsFromReport(text);
     if (reportCounts.length === 0) {
-      movePdfToDoneFolder(file, "点検報告書_" + storeName + "SS_累計台数不明_" + today, originalName);
+      movePdfToDoneFolder(file, "点検報告書_" + storeName + "SS_累計台数不明_" + today, originalName, inboxFolder, doneFolder);
       return { fileName: originalName, storeName: storeName, error: "累計台数を読み取れません" };
     }
     Logger.log("報告書の累計台数: " + JSON.stringify(reportCounts));
@@ -198,16 +216,9 @@ function processSingleInspectionPdf(file, appData) {
     var newName = "点検報告書_" + storeName + "SS_" + today + ".pdf";
     file.setName(newName);
 
-    var doneFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
-    if (doneFolder) {
-      doneFolder.addFile(file);
-      var inbox = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
-      if (inbox) {
-        inbox.removeFile(file);
-      }
-    }
-
-    Logger.log("リネーム: " + newName);
+    doneFolder.addFile(file);
+    inboxFolder.removeFile(file);
+    Logger.log("リネーム＆移動: " + newName + " → 処理済み");
 
     return {
       fileName: newName,
@@ -217,15 +228,16 @@ function processSingleInspectionPdf(file, appData) {
     };
   } catch (e) {
     Logger.log("エラー: " + e.toString());
-    movePdfToDoneFolder(file, "処理エラー_" + today, originalName);
+    movePdfToDoneFolder(file, "処理エラー_" + today, originalName, inboxFolder, doneFolder);
     return { fileName: originalName, error: e.toString() };
   }
 }
 
 /**
  * エラー時でも受信フォルダに残さないよう、PDFを処理済みフォルダへ移動する
+ * inboxFolder / doneFolder は processInspectionReports で取得した同じ参照を渡す
  */
-function movePdfToDoneFolder(file, baseName, originalName) {
+function movePdfToDoneFolder(file, baseName, originalName, inboxFolder, doneFolder) {
   try {
     var safeName = baseName + ".pdf";
     if (safeName.length > 200) {
@@ -233,14 +245,28 @@ function movePdfToDoneFolder(file, baseName, originalName) {
     }
     file.setName(safeName);
 
-    var doneFolder = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
     if (doneFolder) {
       doneFolder.addFile(file);
-      var inbox = getInspectionFolder(INSPECTION_REPORT_CONFIG.FOLDER_INBOX);
-      if (inbox) {
-        inbox.removeFile(file);
+      if (inboxFolder) {
+        inboxFolder.removeFile(file);
       }
       Logger.log("エラーのため処理済みへ移動: " + safeName);
+    } else {
+      var parent = getInspectionParentFolder();
+      var done = parent ? getSubfolder(parent, INSPECTION_REPORT_CONFIG.FOLDER_DONE) : null;
+      if (!done && parent) {
+        done = parent.createFolder(INSPECTION_REPORT_CONFIG.FOLDER_DONE);
+      }
+      if (done) {
+        done.addFile(file);
+        var inbox = parent ? getSubfolder(parent, INSPECTION_REPORT_CONFIG.FOLDER_INBOX) : null;
+        if (inbox) {
+          inbox.removeFile(file);
+        }
+        Logger.log("エラーのため処理済みへ移動: " + safeName);
+      } else {
+        Logger.log("エラー: 処理済みフォルダを取得・作成できません。ファイルは受信フォルダに残っています。");
+      }
     }
   } catch (moveErr) {
     Logger.log("移動エラー: " + moveErr.toString());
@@ -666,19 +692,61 @@ function sendInspectionResultEmail(results) {
 // ユーティリティ
 // ============================================================
 
-/** 親フォルダ「21_アピカ点検報告書」を取得（マイドライブ直下から検索） */
+/** 親フォルダ「21_アピカ点検報告書」を取得（FOLDER_PARENT_ID が設定されていれば ID で、なければ名前検索） */
 function getInspectionParentFolder() {
+  var id = INSPECTION_REPORT_CONFIG.FOLDER_PARENT_ID;
+  if (id) {
+    try {
+      return DriveApp.getFolderById(id);
+    } catch (e) {
+      Logger.log("親フォルダID取得エラー: " + e.toString());
+      return null;
+    }
+  }
   var root = DriveApp.getRootFolder();
   var it = root.getFoldersByName(INSPECTION_REPORT_CONFIG.FOLDER_PARENT);
   return it.hasNext() ? it.next() : null;
 }
 
-/** 親フォルダ直下のサブフォルダを名前で取得 */
+/** 受信フォルダを取得（FOLDER_INBOX_ID が設定されていれば ID で、なければ親のサブフォルダ名で） */
+function getInspectionInboxFolder(parent) {
+  var id = INSPECTION_REPORT_CONFIG.FOLDER_INBOX_ID;
+  if (id) {
+    try {
+      return DriveApp.getFolderById(id);
+    } catch (e) {
+      Logger.log("受信フォルダID取得エラー: " + e.toString());
+      return null;
+    }
+  }
+  return parent ? getSubfolder(parent, INSPECTION_REPORT_CONFIG.FOLDER_INBOX) : null;
+}
+
+/** 処理済みフォルダを取得（FOLDER_DONE_ID が設定されていれば ID で、なければ親のサブフォルダ名で） */
+function getInspectionDoneFolder(parent) {
+  var id = INSPECTION_REPORT_CONFIG.FOLDER_DONE_ID;
+  if (id) {
+    try {
+      return DriveApp.getFolderById(id);
+    } catch (e) {
+      Logger.log("処理済みフォルダID取得エラー: " + e.toString());
+      return null;
+    }
+  }
+  return parent ? getSubfolder(parent, INSPECTION_REPORT_CONFIG.FOLDER_DONE) : null;
+}
+
+/** 指定した親フォルダ直下のサブフォルダを名前で取得（同じ親を渡せば一貫した参照になる） */
+function getSubfolder(parentFolder, subfolderName) {
+  if (!parentFolder) return null;
+  var it = parentFolder.getFoldersByName(subfolderName);
+  return it.hasNext() ? it.next() : null;
+}
+
+/** 親フォルダ直下のサブフォルダを名前で取得（getInspectionParentFolder を都度呼ぶため、同名親が複数あると別フォルダを指す可能性あり） */
 function getInspectionFolder(subfolderName) {
   var parent = getInspectionParentFolder();
-  if (!parent) return null;
-  var it = parent.getFoldersByName(subfolderName);
-  return it.hasNext() ? it.next() : null;
+  return getSubfolder(parent, subfolderName);
 }
 
 function getFolderByName(name) {
