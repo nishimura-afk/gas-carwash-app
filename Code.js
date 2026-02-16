@@ -16,6 +16,26 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+/**
+ * 送信元（From）を指定してGmail下書きを作成する。
+ * Gmail API が有効な場合は From に config.ADMIN_EMAIL を使用し、無効または失敗時は GmailApp にフォールバックする。
+ */
+function createDraftWithFrom(to, subject, body) {
+  const config = getConfig();
+  const fromEmail = config.ADMIN_EMAIL || Session.getActiveUser().getEmail();
+  try {
+    if (typeof Gmail !== 'undefined' && Gmail.Users && Gmail.Users.Drafts) {
+      const mime = 'From: ' + fromEmail + '\r\nTo: ' + to + '\r\nSubject: ' + subject + '\r\n\r\n' + body;
+      const raw = Utilities.base64EncodeWebSafe(Utilities.newBlob(mime, 'UTF-8').getBytes());
+      Gmail.Users.Drafts.create({ userId: 'me', resource: { message: { raw: raw } } });
+      return;
+    }
+  } catch (e) {
+    console.warn('Gmail API で下書き作成失敗、GmailApp にフォールバック:', e);
+  }
+  GmailApp.createDraft(to, subject, body);
+}
+
 function getCarWashList() { return getCarWashListCached(); }
 
 function checkSubsidyAlert(shopName, installDateStr) {
@@ -197,7 +217,22 @@ function updateProjectStatus(id, newStatus) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(id)) {
-      sheet.getRange(i + 1, 6).setValue(newStatus);
+      const row = i + 1;
+      const currentStatus = data[i][5];
+      const eventId = data[i][6];
+      // ステータスを「未完了」以外に戻す場合、登録済みのカレンダーがあれば削除し予定日・カレンダーIDをクリア
+      if (currentStatus === config.PROJECT_STATUS.SCHEDULED && eventId && newStatus !== config.PROJECT_STATUS.SCHEDULED) {
+        try {
+          const calendar = config.CALENDAR_ID === 'primary' ? CalendarApp.getDefaultCalendar() : CalendarApp.getCalendarById(config.CALENDAR_ID);
+          if (calendar) {
+            const event = calendar.getEventById(eventId);
+            if (event) event.deleteEvent();
+          }
+        } catch (e) { console.warn(e); }
+        sheet.getRange(row, 5).clearContent();
+        sheet.getRange(row, 7).clearContent();
+      }
+      sheet.getRange(row, 6).setValue(newStatus);
       return { success: true };
     }
   }
@@ -210,7 +245,20 @@ function cancelProject(id) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(id)) {
-      sheet.getRange(i + 1, 6).setValue(config.PROJECT_STATUS.CANCELLED);
+      const row = i + 1;
+      const eventId = data[i][6];
+      if (eventId) {
+        try {
+          const calendar = config.CALENDAR_ID === 'primary' ? CalendarApp.getDefaultCalendar() : CalendarApp.getCalendarById(config.CALENDAR_ID);
+          if (calendar) {
+            const event = calendar.getEventById(eventId);
+            if (event) event.deleteEvent();
+          }
+        } catch (e) { console.warn(e); }
+        sheet.getRange(row, 5).clearContent();
+        sheet.getRange(row, 7).clearContent();
+      }
+      sheet.getRange(row, 6).setValue(config.PROJECT_STATUS.CANCELLED);
       return { success: true };
     }
   }
@@ -492,7 +540,7 @@ function createDraftsForSelected(selectedData) {
       try {
         const subject = `【見積依頼】洗車機関連案件のお見積り依頼（${daifukuItems.length}件）`;
         const body = generateConsolidatedTemplate(daifukuItems, '木村様');
-        GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
+        createDraftWithFrom(RECIPIENT_DAIFUKU, subject, body);
         draftCount++;
       } catch (e) {
         console.error('ダイフクメール作成エラー:', e);
@@ -505,7 +553,7 @@ function createDraftsForSelected(selectedData) {
       try {
         const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
         const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
-        GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
+        createDraftWithFrom(RECIPIENT_BEAUTY, subject, body);
         draftCount++;
       } catch (e) {
         console.error('ビユーテーメール作成エラー:', e);
@@ -728,14 +776,14 @@ function createDraftsForAlerts() {
   if (daifukuItems.length > 0) {
     const subject = `【見積依頼】洗車機関連案件のお見積り依頼（${daifukuItems.length}件）`;
     const body = generateConsolidatedTemplate(daifukuItems, '木村様');
-    GmailApp.createDraft(RECIPIENT_DAIFUKU, subject, body);
+    createDraftWithFrom(RECIPIENT_DAIFUKU, subject, body);
   }
 
   // メール下書き作成（ビユーテー：松永様）
   if (beautyItems.length > 0) {
     const subject = `【見積依頼】スプラッシュブロー関連案件のお見積り依頼（${beautyItems.length}件）`;
     const body = generateConsolidatedTemplate(beautyItems, 'ビユーテー\n松永様');
-    GmailApp.createDraft(RECIPIENT_BEAUTY, subject, body);
+    createDraftWithFrom(RECIPIENT_BEAUTY, subject, body);
   }
 
   return createdLog;

@@ -627,14 +627,16 @@ function compareInspectionWithAppData(storeName, reportCounts, appData, reportDa
 
     var reportCount;
     var reportHasThisPosition = reportCountByPos.hasOwnProperty(appPosition);
+    var threshold = app.avg * thresholdMonths;  // 許容差（この範囲内なら✅）
     if (reportHasThisPosition) {
       reportCount = reportCountByPos[appPosition];
-      // 1台のみの店舗で、報告のその位置の値が明らかにおかしい（桁が違う等）場合は、全報告値のうちアプリに最も近いものを採用
+      // 1台のみの店舗で、報告のその位置の値が明らかにおかしい場合は、全報告値のうちアプリに最も近いものを採用。
+      // ただし「最も近い値」でも許容差を超える場合は差し替えず、🔴としてメール通知する。
       if (singleMachineStore && reportCounts.length > 1) {
         var closestCount = pickClosestReportCount(reportCounts, app.count);
         var reportDiff = Math.abs(reportCount - app.count);
         var closestDiff = Math.abs(closestCount - app.count);
-        if (closestDiff < reportDiff && closestDiff < app.count * 0.5) {
+        if (closestDiff < reportDiff && closestDiff <= threshold) {
           reportCount = closestCount;
           Logger.log(storeName + " " + appPosition + ": 1台店のため報告値はアプリに最も近い数値を採用（" + reportCount + "）");
         }
@@ -674,7 +676,6 @@ function compareInspectionWithAppData(storeName, reportCounts, appData, reportDa
     }
 
     var diff = reportCount - predicted;
-    var threshold = app.avg * thresholdMonths;
 
     var status;
     if (Math.abs(diff) <= threshold) {
@@ -745,7 +746,10 @@ function sendInspectionResultEmail(results) {
     body += "\n";
   });
 
-  if (!hasAlert) return;  // 異常がなければメール送信しない
+  if (!hasAlert) {
+    Logger.log("洗車機点検報告書チェック: 異常なしのためメール送信しません（結果件数=" + results.length + "）");
+    return;
+  }
 
   body += "━━━━━━━━━━━━━━━━━━━━━━\n";
   body += "\n上記を確認してください。\n";
@@ -757,7 +761,7 @@ function sendInspectionResultEmail(results) {
   }
 
   MailApp.sendEmail(to, "【要確認】洗車機点検報告書チェックで異常あり", body);
-  Logger.log("通知メール送信完了（異常のみ）");
+  Logger.log("洗車機点検報告書チェック: 通知メール送信完了 → " + to);
 }
 
 // ============================================================

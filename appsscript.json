@@ -2,11 +2,8 @@
   "timeZone": "Asia/Tokyo",
   "dependencies": {
     "enabledAdvancedServices": [
-      {
-        "userSymbol": "Drive",
-        "version": "v2",
-        "serviceId": "drive"
-      }
+      {"userSymbol": "Drive", "version": "v2", "serviceId": "drive"},
+      {"userSymbol": "Gmail", "version": "v1", "serviceId": "gmail"}
     ]
   },
   "exceptionLogging": "STACKDRIVER",
