@@ -44,6 +44,9 @@ var INSPECTION_REPORT_CONFIG = {
   // 通知先メールアドレス
   NOTIFY_EMAIL: "nishimura@selfix.jp",
 
+  // 送信元メールアドレス（Gmail の「メールアドレスの追加」で登録済みであること）
+  FROM_EMAIL: "nishimura@nishimurawork.com",
+
   // 累計台数のズレ許容範囲（月平均の何倍までOKか）1＝月平均以内
   THRESHOLD_MONTHS: 1
 };
@@ -760,8 +763,23 @@ function sendInspectionResultEmail(results) {
     to = config.ADMIN_EMAIL || Session.getActiveUser().getEmail();
   }
 
-  MailApp.sendEmail(to, "【要確認】洗車機点検報告書チェックで異常あり", body);
-  Logger.log("洗車機点検報告書チェック: 通知メール送信完了 → " + to);
+  var subject = "【要確認】洗車機点検報告書チェックで異常あり";
+  var fromEmail = INSPECTION_REPORT_CONFIG.FROM_EMAIL || Session.getActiveUser().getEmail();
+
+  try {
+    if (typeof Gmail !== 'undefined' && Gmail.Users && Gmail.Users.Messages) {
+      var mime = 'From: ' + fromEmail + '\r\nTo: ' + to + '\r\nSubject: ' + subject + '\r\n\r\n' + body;
+      var raw = Utilities.base64EncodeWebSafe(Utilities.newBlob(mime, 'UTF-8').getBytes());
+      Gmail.Users.Messages.send({ raw: raw }, 'me');
+      Logger.log("洗車機点検報告書チェック: Gmail API で送信完了（From: " + fromEmail + " → " + to + "）");
+      return;
+    }
+  } catch (e) {
+    Logger.log("Gmail API 送信失敗、MailApp にフォールバック: " + e.toString());
+  }
+
+  MailApp.sendEmail(to, subject, body);
+  Logger.log("洗車機点検報告書チェック: MailApp で通知メール送信完了 → " + to);
 }
 
 // ============================================================

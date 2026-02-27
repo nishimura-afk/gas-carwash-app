@@ -6,7 +6,8 @@ const EXCHANGE_CALENDAR_ID = getConfig().CALENDAR_ID;
 function createExchangeEvent(shopCode, machineIdentifier, exchangeType, dateString, notes) {
   try {
     const list = getCarWashListCached();
-    const target = list.find(d => d['店舗コード'] == shopCode && d['区別'] == machineIdentifier);
+    const target = list.find(d => d['店舗コード'] == shopCode && d['区別'] == machineIdentifier)
+      || list.find(d => d['店舗コード'] == shopCode);
     const shopName = target ? target['店舗名'] : '店舗情報なし';
     
     const eventDate = new Date(dateString); 
