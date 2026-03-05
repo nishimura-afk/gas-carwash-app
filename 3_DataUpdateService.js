@@ -166,7 +166,7 @@ function recordMonthlyUpdate(updateRecords) {
 
   if (newRows.length > 0) {
     const lastRow = monthlySheet.getLastRow();
-    monthlySheet.getRange(lastRow + 1, 1, lastRow + newRows.length, 5).setValues(newRows);
+    monthlySheet.getRange(lastRow + 1, 1, newRows.length, 5).setValues(newRows);
   }
 
   SpreadsheetApp.flush();
