@@ -227,6 +227,9 @@ function processSingleInspectionPdf(file, appData, inboxFolder, doneFolder) {
       fileName: newName,
       storeName: storeName,
       comparisons: comparisons,
+      reportCounts: reportCounts,
+      extractedTextSnippet: text ? text.substring(0, 300) : null,
+      pdfUrl: file.getUrl(),
       error: null
     };
   } catch (e) {
@@ -737,6 +740,9 @@ function sendInspectionResultEmail(results) {
 
     hasAlert = true;
     body += "■ " + result.storeName + "SS（" + result.fileName + "）\n";
+    if (result.pdfUrl) {
+      body += "  PDF: " + result.pdfUrl + "\n";
+    }
     abnormalComps.forEach(function(comp) {
       body += "  " + comp.position + "機: ";
       body += "報告=" + (comp.reportCount ? comp.reportCount.toLocaleString() : "?") + "台";
@@ -746,6 +752,17 @@ function sendInspectionResultEmail(results) {
       }
       body += "\n  → " + comp.status + "\n";
     });
+    // デバッグ情報: PDF読み取り結果の詳細
+    if (result.reportCounts && result.reportCounts.length > 0) {
+      body += "  [読取値] ";
+      body += result.reportCounts.map(function(rc) {
+        return rc.position + "=" + rc.count.toLocaleString();
+      }).join(", ");
+      body += "\n";
+    }
+    if (result.extractedTextSnippet) {
+      body += "  [抽出テキスト先頭300字]\n  " + result.extractedTextSnippet.replace(/\n/g, "\n  ") + "\n";
+    }
     body += "\n";
   });
 
@@ -768,8 +785,19 @@ function sendInspectionResultEmail(results) {
 
   try {
     if (typeof Gmail !== 'undefined' && Gmail.Users && Gmail.Users.Messages) {
-      var mime = 'From: ' + fromEmail + '\r\nTo: ' + to + '\r\nSubject: ' + subject + '\r\n\r\n' + body;
-      var raw = Utilities.base64EncodeWebSafe(Utilities.newBlob(mime, 'UTF-8').getBytes());
+      var encodedSubject = encodeSubjectRFC2047(subject);
+      var bodyBase64 = Utilities.base64Encode(Utilities.newBlob(body, 'UTF-8').getBytes());
+      // 本文Base64を76文字ごとに改行（MIME規格準拠）
+      var bodyLines = bodyBase64.match(/.{1,76}/g).join('\r\n');
+      var mime = 'MIME-Version: 1.0\r\n'
+        + 'Content-Type: text/plain; charset=UTF-8\r\n'
+        + 'Content-Transfer-Encoding: base64\r\n'
+        + 'From: ' + fromEmail + '\r\n'
+        + 'To: ' + to + '\r\n'
+        + 'Subject: ' + encodedSubject + '\r\n'
+        + '\r\n'
+        + bodyLines;
+      var raw = Utilities.base64EncodeWebSafe(Utilities.newBlob(mime, 'text/plain').getBytes());
       Gmail.Users.Messages.send({ raw: raw }, 'me');
       Logger.log("洗車機点検報告書チェック: Gmail API で送信完了（From: " + fromEmail + " → " + to + "）");
       return;
@@ -785,6 +813,41 @@ function sendInspectionResultEmail(results) {
 // ============================================================
 // ユーティリティ
 // ============================================================
+
+/**
+ * メール件名をRFC 2047 Base64エンコードする
+ * 長い件名は複数のencoded-wordに分割（1語あたり75文字以内）
+ */
+function encodeSubjectRFC2047(subject) {
+  var bytes = Utilities.newBlob(subject, 'UTF-8').getBytes();
+  var prefix = '=?UTF-8?B?';
+  var suffix = '?=';
+  var wrapperLen = prefix.length + suffix.length;  // 12文字
+  // 1 encoded-word あたりの Base64 部分の最大文字数（75 - wrapper = 63、ただし4の倍数に切り下げ）
+  var maxBase64Chars = Math.floor((75 - wrapperLen) / 4) * 4;  // 60
+  // Base64の60文字 = 元データ45バイト
+  var maxBytesPerChunk = (maxBase64Chars / 4) * 3;  // 45
+
+  var encoded = Utilities.base64Encode(bytes);
+  if ((prefix + encoded + suffix).length <= 75) {
+    return prefix + encoded + suffix;
+  }
+
+  // UTF-8の文字境界を壊さないようにバイト配列をチャンク分割してエンコード
+  var parts = [];
+  var i = 0;
+  while (i < bytes.length) {
+    var end = Math.min(i + maxBytesPerChunk, bytes.length);
+    // UTF-8のマルチバイト文字の途中で切らない（先頭バイトの位置まで戻る）
+    while (end < bytes.length && end > i && (bytes[end] & 0xC0) === 0x80) {
+      end--;
+    }
+    var chunk = bytes.slice(i, end);
+    parts.push(prefix + Utilities.base64Encode(chunk) + suffix);
+    i = end;
+  }
+  return parts.join('\r\n ');
+}
 
 /** 親フォルダ「21_アピカ点検報告書」を取得（FOLDER_PARENT_ID が設定されていれば ID で、なければ名前検索） */
 function getInspectionParentFolder() {
