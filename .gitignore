@@ -1,0 +1,7 @@
+node_modules/
+scripts/node_modules/
+scripts/.tmp-downloads/
+scripts/logs/
+scripts/package-lock.json
+.clasp.json
+.claude/settings.local.json
